@@ -227,7 +227,102 @@ export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayer
   }
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 relative">
+    <div className="flex flex-col h-full bg-slate-50 relative overflow-hidden">
+        {/* Google Sheets Modal - Fixed position at root level */}
+        {isSheetModalOpen && (
+            <div className="fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="bg-white rounded-xl shadow-2xl w-full max-w-md border border-slate-200 animate-in zoom-in-95 duration-200">
+                    <div className="p-6 border-b border-slate-200">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                <Link2 size={20} className="text-blue-600" />
+                                Link Google Sheet
+                            </h3>
+                            <button 
+                                onClick={() => {
+                                  setIsSheetModalOpen(false);
+                                  setSheetUrl('');
+                                  setSheetError(null);
+                                }}
+                                className="p-1 hover:bg-slate-100 rounded-lg text-slate-500"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="p-6 space-y-4">
+                        <div>
+                            <label className="block text-sm font-semibold text-slate-700 mb-2">
+                                Google Sheets URL or ID
+                            </label>
+                            <input
+                                type="text"
+                                value={sheetUrl}
+                                onChange={(e) => {
+                                  setSheetUrl(e.target.value);
+                                  setSheetError(null);
+                                }}
+                                placeholder="https://docs.google.com/spreadsheets/d/..."
+                                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-slate-400"
+                            />
+                            <p className="text-xs text-slate-500 mt-2">
+                                Paste the sheet URL or just the ID. The sheet must be publicly accessible.
+                            </p>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-semibold text-slate-700 mb-2">
+                                Requirements
+                            </label>
+                            <ul className="text-xs text-slate-600 space-y-1">
+                                <li>✓ Sheet must contain &quot;latitude&quot; or &quot;lat&quot; column</li>
+                                <li>✓ Sheet must contain &quot;longitude&quot;, &quot;lng&quot;, or &quot;lon&quot; column</li>
+                                <li>✓ First row should be headers</li>
+                                <li>✓ Share settings: Anyone with link can view</li>
+                            </ul>
+                        </div>
+
+                        {sheetError && (
+                            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                                {sheetError}
+                            </div>
+                        )}
+
+                        <div className="flex gap-3 pt-2">
+                            <button 
+                                onClick={() => {
+                                  setIsSheetModalOpen(false);
+                                  setSheetUrl('');
+                                  setSheetError(null);
+                                }}
+                                className="flex-1 py-2.5 border border-slate-200 rounded-lg text-slate-600 font-semibold hover:bg-slate-50 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                onClick={handleLoadGoogleSheet}
+                                disabled={isLoadingSheet || !sheetUrl.trim()}
+                                className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-md flex items-center justify-center gap-2"
+                            >
+                                {isLoadingSheet ? (
+                                    <>
+                                        <Loader2 size={16} className="animate-spin" />
+                                        Loading...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Link2 size={16} />
+                                        Link Sheet
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )}
+
         {/* Toolbar */}
         <div className="p-4 bg-white border-b border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 items-center justify-between z-20">
             <div className="flex items-center gap-4 w-full md:w-auto flex-wrap">
@@ -447,101 +542,6 @@ export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayer
                         </button>
                     </div>
                  </div>
-            </div>
-        )}
-
-        {/* Google Sheets Modal */}
-        {isSheetModalOpen && (
-            <div className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                <div className="bg-white rounded-xl shadow-2xl w-full max-w-md border border-slate-200 animate-in zoom-in-95 duration-200">
-                    <div className="p-6 border-b border-slate-200">
-                        <div className="flex items-center justify-between">
-                            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                                <Link2 size={20} className="text-blue-600" />
-                                Link Google Sheet
-                            </h3>
-                            <button 
-                                onClick={() => {
-                                  setIsSheetModalOpen(false);
-                                  setSheetUrl('');
-                                  setSheetError(null);
-                                }}
-                                className="p-1 hover:bg-slate-100 rounded-lg text-slate-500"
-                            >
-                                <X size={20} />
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="p-6 space-y-4">
-                        <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-2">
-                                Google Sheets URL or ID
-                            </label>
-                            <input
-                                type="text"
-                                value={sheetUrl}
-                                onChange={(e) => {
-                                  setSheetUrl(e.target.value);
-                                  setSheetError(null);
-                                }}
-                                placeholder="https://docs.google.com/spreadsheets/d/..."
-                                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-slate-400"
-                            />
-                            <p className="text-xs text-slate-500 mt-2">
-                                Paste the sheet URL or just the ID. The sheet must be publicly accessible.
-                            </p>
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-2">
-                                Requirements
-                            </label>
-                            <ul className="text-xs text-slate-600 space-y-1">
-                                <li>✓ Sheet must contain &quot;latitude&quot; or &quot;lat&quot; column</li>
-                                <li>✓ Sheet must contain &quot;longitude&quot;, &quot;lng&quot;, or &quot;lon&quot; column</li>
-                                <li>✓ First row should be headers</li>
-                                <li>✓ Share settings: Anyone with link can view</li>
-                            </ul>
-                        </div>
-
-                        {sheetError && (
-                            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-                                {sheetError}
-                            </div>
-                        )}
-
-                        <div className="flex gap-3 pt-2">
-                            <button 
-                                onClick={() => {
-                                  setIsSheetModalOpen(false);
-                                  setSheetUrl('');
-                                  setSheetError(null);
-                                }}
-                                className="flex-1 py-2.5 border border-slate-200 rounded-lg text-slate-600 font-semibold hover:bg-slate-50 transition-colors"
-                            >
-                                Cancel
-                            </button>
-                            <button 
-                                onClick={handleLoadGoogleSheet}
-                                disabled={isLoadingSheet || !sheetUrl.trim()}
-                                className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-md flex items-center justify-center gap-2"
-                            >
-                                {isLoadingSheet ? (
-                                    <>
-                                        <Loader2 size={16} className="animate-spin" />
-                                        Loading...
-                                    </>
-                                ) : (
-                                    <>
-                                        <Link2 size={16} />
-                                        Link Sheet
-                                    </>
-                                )}
-                            </button>
-                        </div>
-                    </div>
-                </div>
             </div>
         )}
     </div>
