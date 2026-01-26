@@ -1,0 +1,22 @@
+import { FeatureCollection, Feature, Geometry, GeoJsonProperties } from 'geojson';
+
+export interface GridConfig {
+  show: boolean;
+  showLabels: boolean;
+  size: number; // in km
+  opacity: number;
+}
+
+export interface Layer {
+  id: string;
+  name: string;
+  visible: boolean;
+  data: FeatureCollection<Geometry, GeoJsonProperties>;
+  color: string;
+  opacity: number;
+  type: 'point' | 'line' | 'polygon'; // simplified type hint
+  grid: GridConfig;
+  lastUpdated?: number;
+}
+
+export type AppView = 'map' | 'data' | 'explore' | 'analyze';

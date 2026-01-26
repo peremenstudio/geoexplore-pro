@@ -1,0 +1,5 @@
+{
+  "name": "GeoExplore Pro",
+  "description": "A modern GIS data visualization tool. Upload GeoJSON, Shapefiles, or ZIPs, analyze data density with grid overlays, and explore raw feature attributes in a dedicated data view.",
+  "requestFramePermissions": []
+}

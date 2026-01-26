@@ -1,0 +1,70 @@
+========================================================================
+GE O E X P L O R E   P R O  -  P L A T F O R M   G U I D E
+========================================================================
+
+1. OVERVIEW
+GeoExplore Pro is a high-performance, browser-based GIS (Geographic Information System) tool designed for rapid data visualization, spatial analysis, and location discovery. It integrates modern web technologies (React, Leaflet, Tailwind) with advanced data processing and AI-driven search capabilities.
+
+2. CORE FUNCTIONS & FEATURES
+
+A. MAPPING & NAVIGATION
+- Initial Focus: The map starts centered on Israel for immediate regional context.
+- Layer Rendering: Supports high-performance rendering of thousands of points using both SVG and Canvas (optional) methods.
+- Coordinate Handling: Visualizes overlapping points using a "Concentric Rings" system, ensuring no data point is hidden.
+
+B. DATA IMPORT & EXPORT
+- Multi-Format Support: Process GeoJSON, JSON, KML, CSV, and Excel (XLSX/XLS) directly.
+- ZIP Processing: Automatically extracts and parses Shapefiles (.shp, .dbf, .prj) from ZIP archives.
+- Smart Repair: Includes a "Junk Repair" utility for corrupted ZIP buffers to ensure successful extraction.
+- CSV Export: Export any active layer's attribute table to a clean CSV file for external use.
+
+C. LAYER MANAGEMENT
+- Visual Controls: Toggle visibility, adjust opacity, and change feature colors in real-time.
+- Spatial Zoom: Quickly focus the viewport on the bounds of any specific layer.
+- Layer Merging: Merge two layers together with an intelligent de-duplication engine that identifies duplicate geometries and attributes.
+
+D. MANUAL DATA COLLECTION
+- Point Dropping: Enter "Edit Mode" to manually place points on the map.
+- Schema Inheritance: New points automatically inherit the property structure (columns) of the active layer.
+- Priority System: Features include a mandatory "Priority" field with four levels: None, Urgent, Normal, and Low.
+- Urgent FX: When a feature is set to "Urgent", the map marker turns Red and performs a pulsing ring animation for 10 seconds.
+
+E. GRID & DENSITY ANALYSIS
+- Dynamic Grid: Overlay a 0.5km to 2km grid on any layer to calculate point density.
+- Frequency Heatmap: Grid cells colorize based on feature counts (Intensity-based coloring).
+- Labeling: Toggle numeric labels inside grid cells for precise count visualization.
+
+F. EXPLORE VIEW (OSM INTEGRATION)
+- Global Search: Find any Point of Interest (POI) globally using the OpenStreetMap Nominatim API.
+- Area Biasing: Searches are biased toward your current map location for more relevant local results.
+- Bulk Import: Add search results to your workspace as new, fully-editable map layers.
+
+G. DATA EXPLORER
+- Tabular View: A spreadsheet-style view of all feature attributes.
+- Global Search: Filter thousands of rows instantly via attribute keyword search.
+- Pagination: High-performance data rendering with paginated navigation (50 items per page).
+
+H. ANALYZE VIEW (INTERACTIVE DASHBOARD)
+- Live Filtering: Filter map data based on attribute categories or numerical ranges.
+- Numerical Widgets: KPIs (Sum/Avg) and dual-range sliders for number columns.
+- Categorical Widgets: Choose from four interactive chart types:
+  - Donut Charts: For proportional distribution.
+  - Treemaps: For hierarchy and area-based volume.
+  - Cluster Bars: For frequency ranking.
+  - Column Charts: For vertical comparative analysis.
+
+3. TECHNICAL SPECIFICATIONS
+- UI Framework: React 19.
+- Mapping Library: Leaflet (react-leaflet).
+- Styling: Tailwind CSS.
+- AI/Grounding: Integrated support for Gemini API (Search Grounding).
+- Coordinate Reference: Defaulting to WGS84 (lat/lng).
+
+4. USER TIPS
+- Click the "Layers" button in the map header to toggle the control panel.
+- Use the "Analyze" tab to hide/show specific categories on the map in real-time.
+- If a Shapefile fails to upload, ensure it is inside a ZIP with its corresponding .dbf file.
+
+========================================================================
+v2.5.0 - Senior Engineering Documentation
+========================================================================

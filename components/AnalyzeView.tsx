@@ -1,0 +1,671 @@
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Layer } from '../types';
+import { Feature } from 'geojson';
+import { BarChart3, Filter, PieChart, Layers, Check, X, MoreHorizontal, LayoutGrid, List, AlignVerticalJustifyEnd } from 'lucide-react';
+
+interface AnalyzeViewProps {
+    layers: Layer[];
+    onFilterChange: (layerId: string | null, features: Feature[] | null) => void;
+}
+
+type ChartType = 'bar' | 'column' | 'donut' | 'treemap';
+type FilterValue = string[] | { min: number; max: number };
+
+// Color Palette for categorical data
+const COLORS = [
+    '#6366f1', '#ec4899', '#8b5cf6', '#14b8a6', '#f59e0b', 
+    '#ef4444', '#3b82f6', '#10b981', '#f97316', '#64748b'
+];
+
+const getColor = (index: number) => COLORS[index % COLORS.length];
+
+// Helper to determine column type
+const getColumnType = (value: any): 'string' | 'number' | 'other' => {
+    if (typeof value === 'number') return 'number';
+    if (typeof value === 'string') return 'string';
+    return 'other';
+};
+
+// --- Dual Range Slider Component ---
+const DualRangeSlider: React.FC<{
+    min: number;
+    max: number;
+    value: { min: number; max: number };
+    onChange: (value: { min: number; max: number }) => void;
+}> = ({ min, max, value, onChange }) => {
+    // Local state for smooth dragging and typing
+    const [minVal, setMinVal] = useState(value.min);
+    const [maxVal, setMaxVal] = useState(value.max);
+
+    // Sync with external value changes (e.g. clear filters)
+    useEffect(() => {
+        setMinVal(value.min);
+        setMaxVal(value.max);
+    }, [value]);
+
+    // Determine decimals based on range size
+    const range = max - min;
+    const step = range < 10 && range > 0 ? 0.01 : range < 100 && range > 0 ? 0.1 : 1;
+
+    // Safe Percentage Calculation (handles range = 0)
+    const getPercent = (val: number) => {
+        if (range <= 0) return 0;
+        return Math.max(0, Math.min(100, ((val - min) / range) * 100));
+    };
+
+    const minPercent = getPercent(minVal);
+    const maxPercent = range <= 0 ? 100 : getPercent(maxVal);
+
+    // Slider Handlers
+    const handleMinSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const val = Math.min(Number(e.target.value), maxVal - step);
+        setMinVal(val);
+        onChange({ min: val, max: maxVal });
+    };
+
+    const handleMaxSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const val = Math.max(Number(e.target.value), minVal + step);
+        setMaxVal(val);
+        onChange({ min: minVal, max: val });
+    };
+
+    // Input Handlers (Commit on Blur or Enter)
+    const handleMinInputBlur = () => {
+        // Clamp: Cannot be less than global min, cannot be more than current max
+        let val = Math.max(min, Math.min(minVal, maxVal)); 
+        setMinVal(val);
+        onChange({ min: val, max: maxVal });
+    };
+
+    const handleMaxInputBlur = () => {
+        // Clamp: Cannot be more than global max, cannot be less than current min
+        let val = Math.min(max, Math.max(maxVal, minVal));
+        setMaxVal(val);
+        onChange({ min: minVal, max: val });
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') {
+            (e.currentTarget as HTMLInputElement).blur();
+        }
+    };
+
+    return (
+        <div className="relative w-full h-14 select-none mb-1">
+             {/* Track Background - Positioned at top-2 */}
+            <div className="absolute top-2 w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                <div 
+                    className="h-full bg-coral-500 transition-all duration-75"
+                    style={{ marginLeft: `${minPercent}%`, width: `${maxPercent - minPercent}%` }}
+                />
+            </div>
+
+            {/* Range Inputs - Overlapping with pointer-events magic, aligned with track */}
+            <input
+                type="range"
+                min={min}
+                max={max}
+                step={step}
+                value={minVal}
+                onChange={handleMinSliderChange}
+                className="absolute top-0 w-full h-6 bg-transparent pointer-events-none appearance-none z-20 [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-coral-600 [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:appearance-none [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-coral-600 [&::-moz-range-thumb]:shadow-md [&::-moz-range-thumb]:appearance-none"
+            />
+            <input
+                type="range"
+                min={min}
+                max={max}
+                step={step}
+                value={maxVal}
+                onChange={handleMaxSliderChange}
+                className="absolute top-0 w-full h-6 bg-transparent pointer-events-none appearance-none z-30 [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-coral-600 [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:appearance-none [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-coral-600 [&::-moz-range-thumb]:shadow-md [&::-moz-range-thumb]:appearance-none"
+            />
+
+            {/* Editable Input Labels - Pushed to bottom */}
+            <div className="absolute bottom-0 left-0 z-40">
+                <input 
+                    type="number"
+                    value={minVal}
+                    onChange={(e) => setMinVal(Number(e.target.value))}
+                    onBlur={handleMinInputBlur}
+                    onKeyDown={handleKeyDown}
+                    className="w-20 text-[10px] font-bold text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 focus:ring-2 focus:ring-coral-500 focus:border-coral-500 outline-none text-center shadow-sm transition-all"
+                />
+            </div>
+            <div className="absolute bottom-0 right-0 z-40">
+                 <input 
+                    type="number"
+                    value={maxVal}
+                    onChange={(e) => setMaxVal(Number(e.target.value))}
+                    onBlur={handleMaxInputBlur}
+                    onKeyDown={handleKeyDown}
+                    className="w-20 text-[10px] font-bold text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 focus:ring-2 focus:ring-coral-500 focus:border-coral-500 outline-none text-center shadow-sm transition-all"
+                />
+            </div>
+        </div>
+    );
+};
+
+// Component for a Single Attribute Widget
+const AttributeWidget: React.FC<{
+    attribute: string;
+    features: Feature[];
+    activeFilters: FilterValue | undefined;
+    onToggleFilter: (value: any) => void;
+}> = ({ attribute, features, activeFilters, onToggleFilter }) => {
+    
+    // Default to 'bar' (Cluster Bar / List) for strings
+    const [chartType, setChartType] = useState<ChartType>('bar');
+    const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const menuRef = useRef<HTMLDivElement>(null);
+
+    // Close menu on click outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+                setIsMenuOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    // Calculate Stats / Frequency
+    const stats = useMemo(() => {
+        const values = features.map(f => f.properties?.[attribute]);
+        const type = getColumnType(values.find(v => v !== undefined && v !== null && v !== ''));
+
+        if (type === 'number') {
+            const nums = values.filter(v => typeof v === 'number') as number[];
+            if (nums.length === 0) return { type: 'number', min: 0, max: 0, avg: 0, sum: 0 };
+            const sum = nums.reduce((a, b) => a + b, 0);
+            return {
+                type: 'number',
+                min: Math.min(...nums),
+                max: Math.max(...nums),
+                avg: sum / nums.length,
+                sum
+            };
+        } else {
+            // String / Categorical
+            const counts: Record<string, number> = {};
+            values.forEach(v => {
+                const key = v === undefined || v === null || v === '' ? '(Empty)' : String(v);
+                counts[key] = (counts[key] || 0) + 1;
+            });
+            const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+            const topCategories = sorted.slice(0, 15); // Show top 15
+            const totalCount = Object.values(counts).reduce((a, b) => a + b, 0);
+            return {
+                type: 'string',
+                distribution: topCategories,
+                maxCount: topCategories[0]?.[1] || 1,
+                totalCount
+            };
+        }
+    }, [features, attribute]);
+
+    // Render Numerical Widget with Slider
+    if (stats.type === 'number') {
+        const currentRange = (activeFilters as { min: number, max: number }) || { min: stats.min, max: stats.max };
+
+        return (
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between h-full">
+                <div className="flex items-center gap-2 mb-3">
+                    <div className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg">
+                        <PieChart size={16} />
+                    </div>
+                    <span className="font-bold text-slate-700 text-sm truncate" title={attribute}>{attribute}</span>
+                </div>
+                
+                {/* KPI Grid */}
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                     <div className="bg-slate-50 p-2 rounded-lg">
+                         <span className="block text-[10px] uppercase text-slate-400 font-bold">Sum</span>
+                         <span className="text-sm font-bold text-slate-800">{stats.sum.toLocaleString(undefined, { maximumFractionDigits: 1, notation: 'compact' })}</span>
+                     </div>
+                     <div className="bg-slate-50 p-2 rounded-lg">
+                         <span className="block text-[10px] uppercase text-slate-400 font-bold">Avg</span>
+                         <span className="text-sm font-bold text-slate-800">{stats.avg.toLocaleString(undefined, { maximumFractionDigits: 1, notation: 'compact' })}</span>
+                     </div>
+                </div>
+
+                {/* Slider Control */}
+                <div className="mt-auto px-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Filter Range</span>
+                    <DualRangeSlider 
+                        min={stats.min} 
+                        max={stats.max} 
+                        value={currentRange}
+                        onChange={(val) => onToggleFilter(val)}
+                    />
+                </div>
+            </div>
+        );
+    }
+
+    // --- Render Categorical Widget ---
+    const activeStringFilters = (activeFilters as string[]) || [];
+
+    const renderChart = () => {
+        // 1. Cluster Bar (List)
+        if (chartType === 'bar') {
+            return (
+                <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-2">
+                    {stats.distribution.map(([key, count], idx) => {
+                        const isSelected = activeStringFilters.includes(key);
+                        const isDimmed = activeStringFilters.length > 0 && !isSelected;
+                        const percent = (count / stats.maxCount) * 100;
+                        
+                        return (
+                            <div 
+                            key={key} 
+                            onClick={() => onToggleFilter(key)}
+                            className={`group cursor-pointer relative flex items-center text-xs transition-all duration-200 ${isDimmed ? 'opacity-40' : 'opacity-100'}`}
+                            >
+                                <div className="w-24 truncate text-slate-600 font-medium mr-2 text-right flex-shrink-0" title={key}>{key}</div>
+                                <div className="flex-1 h-6 bg-slate-100 rounded-md overflow-hidden relative">
+                                    <div 
+                                    className={`h-full rounded-md transition-all duration-300 ${isSelected ? 'bg-coral-600' : 'bg-coral-400 group-hover:bg-coral-500'}`}
+                                    style={{ width: `${percent}%` }}
+                                    />
+                                    <span className={`absolute right-2 top-1/2 -translate-y-1/2 font-bold text-[10px] ${percent > 80 ? 'text-white' : 'text-slate-600'}`}>
+                                        {count}
+                                    </span>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            );
+        }
+
+        // 2. Column Chart
+        if (chartType === 'column') {
+            return (
+                <div className="flex-1 flex items-end gap-1 overflow-x-auto custom-scrollbar pt-4 pb-1">
+                    {stats.distribution.map(([key, count]) => {
+                        const isSelected = activeStringFilters.includes(key);
+                        const isDimmed = activeStringFilters.length > 0 && !isSelected;
+                        const heightPercent = Math.max((count / stats.maxCount) * 100, 5); // Min 5% height
+
+                        return (
+                            <div 
+                                key={key}
+                                onClick={() => onToggleFilter(key)}
+                                className={`flex flex-col items-center gap-1 cursor-pointer transition-opacity ${isDimmed ? 'opacity-40' : 'opacity-100'} flex-shrink-0 w-12`}
+                            >
+                                <span className="text-[9px] font-bold text-slate-500">{count}</span>
+                                <div className="w-full relative h-32 bg-slate-50 rounded-t-md flex items-end justify-center group">
+                                     <div 
+                                        className={`w-full rounded-t-md transition-all duration-300 ${isSelected ? 'bg-coral-600' : 'bg-coral-400 group-hover:bg-coral-500'}`}
+                                        style={{ height: `${heightPercent}%` }}
+                                     />
+                                </div>
+                                <span className="text-[9px] text-slate-600 truncate w-full text-center" title={key}>{key}</span>
+                            </div>
+                        )
+                    })}
+                </div>
+            );
+        }
+
+        // 3. Treemap
+        if (chartType === 'treemap') {
+            return (
+                <div className="flex-1 flex flex-wrap content-start gap-0.5 overflow-hidden rounded-lg bg-slate-100 p-0.5">
+                    {stats.distribution.map(([key, count], idx) => {
+                         const isSelected = activeStringFilters.includes(key);
+                         const isDimmed = activeStringFilters.length > 0 && !isSelected;
+                         const areaPercent = (count / stats.totalCount) * 100;
+                         // Simple visual sizing approximation based on percentage
+                         const grow = Math.floor(areaPercent * 10); 
+                         const color = getColor(idx);
+
+                         return (
+                            <div 
+                                key={key}
+                                onClick={() => onToggleFilter(key)}
+                                className={`h-auto min-h-[40px] flex flex-col items-center justify-center text-center p-1 cursor-pointer transition-all hover:brightness-110 ${isDimmed ? 'opacity-20 grayscale' : 'opacity-100'}`}
+                                style={{ 
+                                    flexGrow: grow || 1, 
+                                    flexBasis: `${Math.max(areaPercent, 15)}%`,
+                                    backgroundColor: isSelected ? '#1e293b' : color,
+                                    color: 'white'
+                                }}
+                                title={`${key}: ${count}`}
+                            >
+                                <span className="text-[10px] font-bold truncate w-full px-1">{key}</span>
+                                <span className="text-[9px] opacity-80">{count}</span>
+                            </div>
+                         );
+                    })}
+                </div>
+            );
+        }
+
+        // 4. Donut Chart
+        if (chartType === 'donut') {
+            let cumulativePercent = 0;
+            const size = 160;
+            const strokeWidth = 30;
+            const radius = (size - strokeWidth) / 2;
+            const circumference = 2 * Math.PI * radius;
+
+            return (
+                <div className="flex-1 flex flex-col items-center justify-center relative">
+                    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="rotate-[-90deg]">
+                        {stats.distribution.map(([key, count], idx) => {
+                            const isSelected = activeStringFilters.includes(key);
+                            const isDimmed = activeStringFilters.length > 0 && !isSelected;
+                            
+                            const percent = count / stats.totalCount;
+                            const strokeDasharray = `${percent * circumference} ${circumference}`;
+                            const strokeDashoffset = -cumulativePercent * circumference;
+                            
+                            cumulativePercent += percent;
+                            const color = getColor(idx);
+
+                            return (
+                                <circle
+                                    key={key}
+                                    cx={size/2}
+                                    cy={size/2}
+                                    r={radius}
+                                    fill="transparent"
+                                    stroke={isSelected ? '#1e293b' : color}
+                                    strokeWidth={strokeWidth}
+                                    strokeDasharray={strokeDasharray}
+                                    strokeDashoffset={strokeDashoffset}
+                                    className={`transition-all duration-300 cursor-pointer hover:stroke-[34px] ${isDimmed ? 'opacity-20' : 'opacity-100'}`}
+                                    onClick={() => onToggleFilter(key)}
+                                >
+                                    <title>{key}: {count}</title>
+                                </circle>
+                            );
+                        })}
+                    </svg>
+                    
+                    {/* Legend */}
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <div className="text-center bg-white/80 backdrop-blur-sm p-2 rounded-full shadow-sm">
+                             <span className="block text-xs text-slate-400 font-bold uppercase">Total</span>
+                             <span className="block text-lg font-bold text-slate-800">{stats.totalCount}</span>
+                        </div>
+                    </div>
+
+                    <div className="w-full mt-2 flex flex-wrap gap-2 justify-center max-h-20 overflow-y-auto px-2">
+                        {stats.distribution.slice(0, 5).map(([key], idx) => (
+                             <div key={key} className="flex items-center gap-1 text-[9px] text-slate-600">
+                                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: getColor(idx) }}/>
+                                 <span className="truncate max-w-[60px]">{key}</span>
+                             </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        return null;
+    };
+
+
+    // Categorical Chart Container
+    return (
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm h-full overflow-hidden flex flex-col relative">
+             <div className="flex items-center justify-between mb-3 z-10">
+                 <div className="flex items-center gap-2 overflow-hidden">
+                    <div className="p-1.5 bg-coral-50 text-coral-600 rounded-lg flex-shrink-0">
+                        <BarChart3 size={16} />
+                    </div>
+                    <span className="font-bold text-slate-700 text-sm truncate" title={attribute}>{attribute}</span>
+                 </div>
+                 
+                 <div className="flex items-center gap-2 flex-shrink-0">
+                     {activeStringFilters.length > 0 && (
+                        <span className="text-[10px] bg-coral-100 text-coral-700 px-1.5 py-0.5 rounded font-bold">
+                            {activeStringFilters.length}
+                        </span>
+                     )}
+                     
+                     <div className="relative" ref={menuRef}>
+                        <button 
+                            onClick={() => setIsMenuOpen(!isMenuOpen)}
+                            className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600 transition-colors"
+                        >
+                            <MoreHorizontal size={16} />
+                        </button>
+                        
+                        {isMenuOpen && (
+                            <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 shadow-xl rounded-lg p-1.5 w-40 z-50 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100">
+                                <button 
+                                    onClick={() => { setChartType('donut'); setIsMenuOpen(false); }}
+                                    className={`flex items-center gap-2 px-2 py-1.5 text-xs font-medium rounded-md text-left ${chartType === 'donut' ? 'bg-coral-50 text-coral-700' : 'text-slate-600 hover:bg-slate-50'}`}
+                                >
+                                    <PieChart size={14} /> Donut Chart
+                                </button>
+                                <button 
+                                    onClick={() => { setChartType('treemap'); setIsMenuOpen(false); }}
+                                    className={`flex items-center gap-2 px-2 py-1.5 text-xs font-medium rounded-md text-left ${chartType === 'treemap' ? 'bg-coral-50 text-coral-700' : 'text-slate-600 hover:bg-slate-50'}`}
+                                >
+                                    <LayoutGrid size={14} /> Treemap
+                                </button>
+                                <button 
+                                    onClick={() => { setChartType('bar'); setIsMenuOpen(false); }}
+                                    className={`flex items-center gap-2 px-2 py-1.5 text-xs font-medium rounded-md text-left ${chartType === 'bar' ? 'bg-coral-50 text-coral-700' : 'text-slate-600 hover:bg-slate-50'}`}
+                                >
+                                    <List size={14} /> Cluster Bar
+                                </button>
+                                <button 
+                                    onClick={() => { setChartType('column'); setIsMenuOpen(false); }}
+                                    className={`flex items-center gap-2 px-2 py-1.5 text-xs font-medium rounded-md text-left ${chartType === 'column' ? 'bg-coral-50 text-coral-700' : 'text-slate-600 hover:bg-slate-50'}`}
+                                >
+                                    <AlignVerticalJustifyEnd size={14} /> Columns
+                                </button>
+                            </div>
+                        )}
+                     </div>
+                 </div>
+             </div>
+             
+             {renderChart()}
+        </div>
+    );
+};
+
+export const AnalyzeView: React.FC<AnalyzeViewProps> = ({ layers, onFilterChange }) => {
+    const [selectedLayerId, setSelectedLayerId] = useState<string>('');
+    const [selectedAttributes, setSelectedAttributes] = useState<string[]>([]);
+    
+    // Filter State: supports categories (string[]) or ranges ({min, max})
+    const [filters, setFilters] = useState<Record<string, FilterValue>>({});
+
+    const selectedLayer = layers.find(l => l.id === selectedLayerId);
+
+    // Initial Selection
+    useEffect(() => {
+        if (!selectedLayerId && layers.length > 0) {
+            setSelectedLayerId(layers[0].id);
+        }
+    }, [layers, selectedLayerId]);
+
+    // Reset state when layer changes
+    useEffect(() => {
+        setFilters({});
+        setSelectedAttributes([]);
+        if (selectedLayer) {
+             // Auto-select first 4 interesting columns
+            const firstFeature = selectedLayer.data.features[0];
+            if (firstFeature?.properties) {
+                const keys = Object.keys(firstFeature.properties)
+                    .filter(k => !k.startsWith('_') && k !== 'id' && k !== 'created_at')
+                    .slice(0, 4);
+                setSelectedAttributes(keys);
+            }
+        }
+    }, [selectedLayerId]); // Only trigger when ID actually changes
+
+    // Calculate Filtered Features
+    useEffect(() => {
+        if (!selectedLayer) {
+            onFilterChange(null, null);
+            return;
+        }
+
+        const activeFilterKeys = Object.keys(filters);
+        
+        if (activeFilterKeys.length === 0) {
+            // No filters active, pass original data
+            onFilterChange(selectedLayer.id, selectedLayer.data.features);
+            return;
+        }
+
+        const filtered = selectedLayer.data.features.filter(f => {
+            return activeFilterKeys.every(attr => {
+                const val = f.properties?.[attr];
+                const filterValue = filters[attr];
+
+                // 1. Numerical Range Filter
+                if (filterValue && typeof filterValue === 'object' && 'min' in filterValue && 'max' in filterValue) {
+                     // Cast to number, treat null/undefined as invalid for range logic (or user preference)
+                     const numVal = Number(val);
+                     if (isNaN(numVal)) return false; 
+                     return numVal >= filterValue.min && numVal <= filterValue.max;
+                }
+                
+                // 2. Categorical / String Filter (Array)
+                if (Array.isArray(filterValue) && filterValue.length > 0) {
+                    const strVal = val === undefined || val === null || val === '' ? '(Empty)' : String(val);
+                    return filterValue.includes(strVal);
+                }
+
+                return true;
+            });
+        });
+
+        onFilterChange(selectedLayer.id, filtered);
+
+    }, [selectedLayer, filters]);
+
+
+    const toggleAttribute = (attr: string) => {
+        setSelectedAttributes(prev => 
+            prev.includes(attr) ? prev.filter(k => k !== attr) : [...prev, attr]
+        );
+    };
+
+    const toggleFilter = (attr: string, value: any) => {
+        setFilters(prev => {
+            // If value is a range object {min, max}, replace directly
+            if (value && typeof value === 'object' && 'min' in value) {
+                return { ...prev, [attr]: value };
+            }
+
+            // Otherwise assume it's a string value for categorical toggle
+            const currentList = (prev[attr] as string[]) || [];
+            if (!Array.isArray(currentList)) return prev; // Should not happen if types matched
+
+            const updated = currentList.includes(value) 
+                ? currentList.filter(v => v !== value)
+                : [...currentList, value];
+            
+            // Cleanup empty arrays
+            if (updated.length === 0) {
+                const { [attr]: _, ...rest } = prev;
+                return rest;
+            }
+            return { ...prev, [attr]: updated };
+        });
+    };
+
+    const clearFilters = () => setFilters({});
+
+    if (!selectedLayer) {
+        return <div className="p-8 text-center text-slate-400">No layers available to analyze.</div>;
+    }
+
+    const availableAttributes = selectedLayer.data.features.length > 0 
+        ? Object.keys(selectedLayer.data.features[0].properties || {}).filter(k => !k.startsWith('_') && k !== 'id')
+        : [];
+
+    return (
+        <div className="flex flex-col h-full bg-slate-50 border-l border-slate-200">
+            {/* Header / Config */}
+            <div className="bg-white p-5 border-b border-slate-200 shadow-sm z-10">
+                <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        <BarChart3 className="text-purple-600" /> Data Analysis
+                    </h2>
+                    {Object.keys(filters).length > 0 && (
+                        <button 
+                            onClick={clearFilters}
+                            className="flex items-center gap-1.5 text-xs font-bold text-red-500 bg-red-50 px-3 py-1.5 rounded-full hover:bg-red-100 transition-colors"
+                        >
+                            <X size={14} /> Clear {Object.keys(filters).length} Filters
+                        </button>
+                    )}
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-2">
+                    {/* Layer Selector */}
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Source Layer</label>
+                        <div className="relative">
+                            <Layers className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                            <select 
+                                value={selectedLayerId}
+                                onChange={(e) => setSelectedLayerId(e.target.value)}
+                                className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 appearance-none"
+                            >
+                                {layers.map(l => (
+                                    <option key={l.id} value={l.id}>{l.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+
+                    {/* Columns Selector */}
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Fields to Visualize</label>
+                        <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto custom-scrollbar p-1">
+                            {availableAttributes.map(attr => (
+                                <button
+                                    key={attr}
+                                    onClick={() => toggleAttribute(attr)}
+                                    className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-all ${
+                                        selectedAttributes.includes(attr)
+                                        ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
+                                        : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300'
+                                    }`}
+                                >
+                                    {attr}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Dashboard Content */}
+            <div className="flex-1 overflow-y-auto p-5 custom-scrollbar bg-slate-100/50">
+                {selectedAttributes.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-64 text-slate-400">
+                        <Filter size={48} className="opacity-20 mb-4" />
+                        <p className="font-medium">Select fields above to generate charts.</p>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 auto-rows-[280px]">
+                        {selectedAttributes.map(attr => (
+                            <AttributeWidget 
+                                key={attr}
+                                attribute={attr}
+                                features={selectedLayer.data.features} // Pass full features, widget calculates stats
+                                activeFilters={filters[attr]}
+                                onToggleFilter={(val) => toggleFilter(attr, val)}
+                            />
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
