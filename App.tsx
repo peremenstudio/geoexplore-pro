@@ -480,7 +480,8 @@ export default function App() {
                   layers={layers} 
                   onMergeLayers={handleMergeLayers}
                   onFileUpload={handleFileUpload}
-                  isLoading={isLoading} 
+                  isLoading={isLoading}
+                  onAddLayer={(newLayer) => setLayers(prev => [...prev, newLayer])}
                />
              </div>
           )}

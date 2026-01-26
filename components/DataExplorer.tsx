@@ -1,15 +1,17 @@
 import React, { useMemo, useState } from 'react';
 import { Layer } from '../types';
-import { Search, ChevronLeft, ChevronRight, FileText, Download, Merge, AlertTriangle, X, Upload, Loader2 } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, FileText, Download, Merge, AlertTriangle, X, Upload, Loader2, Link2 } from 'lucide-react';
+import { fetchGoogleSheetGeoJSON, isValidSheetUrl } from '../utils/googleSheets';
 
 interface DataExplorerProps {
   layers: Layer[];
   onMergeLayers: (destinationId: string, sourceId: string) => number;
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>, name: string) => void;
   isLoading: boolean;
+  onAddLayer?: (layer: Layer) => void;
 }
 
-export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayers, onFileUpload, isLoading }) => {
+export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayers, onFileUpload, isLoading, onAddLayer }) => {
   const [selectedLayerId, setSelectedLayerId] = useState<string>(layers.length > 0 ? layers[0].id : '');
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -19,6 +21,12 @@ export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayer
   const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
   const [mergeSourceId, setMergeSourceId] = useState<string>('');
   const [mergeResult, setMergeResult] = useState<{ deletedCount: number } | null>(null);
+
+  // Google Sheets State
+  const [isSheetModalOpen, setIsSheetModalOpen] = useState(false);
+  const [sheetUrl, setSheetUrl] = useState('');
+  const [sheetError, setSheetError] = useState<string | null>(null);
+  const [isLoadingSheet, setIsLoadingSheet] = useState(false);
 
   const selectedLayer = layers.find(l => l.id === selectedLayerId);
 
@@ -124,6 +132,48 @@ export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayer
     if (firstOption) setMergeSourceId(firstOption.id);
   };
 
+  const handleLoadGoogleSheet = async () => {
+    if (!sheetUrl.trim()) {
+      setSheetError('Please enter a Google Sheets URL or ID');
+      return;
+    }
+
+    if (!isValidSheetUrl(sheetUrl)) {
+      setSheetError('Invalid Google Sheets URL');
+      return;
+    }
+
+    setIsLoadingSheet(true);
+    setSheetError(null);
+
+    try {
+      const geojson = await fetchGoogleSheetGeoJSON(sheetUrl);
+      
+      const newLayer: Layer = {
+        id: `sheet-${Date.now()}`,
+        name: `Google Sheet (${geojson.features.length} points)`,
+        visible: true,
+        data: geojson,
+        color: `#${Math.floor(Math.random()*16777215).toString(16)}`,
+        opacity: 0.7,
+        type: 'point',
+        grid: { show: false, showLabels: false, size: 0.5, opacity: 0.5 },
+        lastUpdated: Date.now()
+      };
+
+      if (onAddLayer) {
+        onAddLayer(newLayer);
+      }
+
+      setSheetUrl('');
+      setIsSheetModalOpen(false);
+    } catch (error: any) {
+      setSheetError(error.message || 'Failed to load Google Sheet');
+    } finally {
+      setIsLoadingSheet(false);
+    }
+  };
+
   const executeMerge = () => {
     if (!selectedLayerId || !mergeSourceId) return;
     const deleted = onMergeLayers(selectedLayerId, mergeSourceId);
@@ -159,6 +209,19 @@ export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayer
                          Upload File
                     </label>
               </div>
+
+              <div className="text-slate-400 my-2">or</div>
+
+              <button
+                onClick={() => {
+                  setIsSheetModalOpen(true);
+                  setSheetError(null);
+                }}
+                className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 cursor-pointer shadow-md transition-all"
+              >
+                <Link2 size={18} />
+                Link Google Sheet
+              </button>
           </div>
       );
   }
@@ -210,6 +273,18 @@ export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayer
                     >
                         <Download size={16} />
                         <span className="hidden sm:inline">Export CSV</span>
+                    </button>
+
+                    <button 
+                        onClick={() => {
+                          setIsSheetModalOpen(true);
+                          setSheetError(null);
+                        }}
+                        className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white border border-blue-700 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
+                        title="Link Google Sheet"
+                    >
+                        <Link2 size={16} />
+                        <span className="hidden sm:inline">Link Sheet</span>
                     </button>
 
                     <button 
@@ -372,6 +447,101 @@ export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayer
                         </button>
                     </div>
                  </div>
+            </div>
+        )}
+
+        {/* Google Sheets Modal */}
+        {isSheetModalOpen && (
+            <div className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="bg-white rounded-xl shadow-2xl w-full max-w-md border border-slate-200 animate-in zoom-in-95 duration-200">
+                    <div className="p-6 border-b border-slate-200">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                <Link2 size={20} className="text-blue-600" />
+                                Link Google Sheet
+                            </h3>
+                            <button 
+                                onClick={() => {
+                                  setIsSheetModalOpen(false);
+                                  setSheetUrl('');
+                                  setSheetError(null);
+                                }}
+                                className="p-1 hover:bg-slate-100 rounded-lg text-slate-500"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="p-6 space-y-4">
+                        <div>
+                            <label className="block text-sm font-semibold text-slate-700 mb-2">
+                                Google Sheets URL or ID
+                            </label>
+                            <input
+                                type="text"
+                                value={sheetUrl}
+                                onChange={(e) => {
+                                  setSheetUrl(e.target.value);
+                                  setSheetError(null);
+                                }}
+                                placeholder="https://docs.google.com/spreadsheets/d/..."
+                                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-slate-400"
+                            />
+                            <p className="text-xs text-slate-500 mt-2">
+                                Paste the sheet URL or just the ID. The sheet must be publicly accessible.
+                            </p>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-semibold text-slate-700 mb-2">
+                                Requirements
+                            </label>
+                            <ul className="text-xs text-slate-600 space-y-1">
+                                <li>✓ Sheet must contain &quot;latitude&quot; or &quot;lat&quot; column</li>
+                                <li>✓ Sheet must contain &quot;longitude&quot;, &quot;lng&quot;, or &quot;lon&quot; column</li>
+                                <li>✓ First row should be headers</li>
+                                <li>✓ Share settings: Anyone with link can view</li>
+                            </ul>
+                        </div>
+
+                        {sheetError && (
+                            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                                {sheetError}
+                            </div>
+                        )}
+
+                        <div className="flex gap-3 pt-2">
+                            <button 
+                                onClick={() => {
+                                  setIsSheetModalOpen(false);
+                                  setSheetUrl('');
+                                  setSheetError(null);
+                                }}
+                                className="flex-1 py-2.5 border border-slate-200 rounded-lg text-slate-600 font-semibold hover:bg-slate-50 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                onClick={handleLoadGoogleSheet}
+                                disabled={isLoadingSheet || !sheetUrl.trim()}
+                                className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-md flex items-center justify-center gap-2"
+                            >
+                                {isLoadingSheet ? (
+                                    <>
+                                        <Loader2 size={16} className="animate-spin" />
+                                        Loading...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Link2 size={16} />
+                                        Link Sheet
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
         )}
     </div>
