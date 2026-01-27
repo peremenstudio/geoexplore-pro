@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Layer } from '../types';
 import { Feature } from 'geojson';
-import { BarChart3, Filter, PieChart, Layers, Check, X, MoreHorizontal, LayoutGrid, List, AlignVerticalJustifyEnd, Map as MapIcon, Clock, User, Pencil, Square, Circle } from 'lucide-react';
+import { BarChart3, Filter, PieChart, Layers, Check, X, MoreHorizontal, LayoutGrid, List, AlignVerticalJustifyEnd, Map as MapIcon, Clock, User, Pencil, Square, Circle, Scissors } from 'lucide-react';
 import { generateWalkingIsochrones } from '../utils/spatialAnalysis';
+import { filterFeaturesByPolygon } from '../utils/spatialFilter';
 
 interface AnalyzeViewProps {
     layers: Layer[];
@@ -483,6 +484,8 @@ export const AnalyzeView: React.FC<AnalyzeViewProps> = ({ layers, onFilterChange
     
     // Spatial Analysis State
     const [isGeneratingIsochrone, setIsGeneratingIsochrone] = useState(false);
+    const [showCutByBoundaryModal, setShowCutByBoundaryModal] = useState(false);
+    const [isCuttingByBoundary, setIsCuttingByBoundary] = useState(false);
 
     const selectedLayer = layers.find(l => l.id === selectedLayerId);
 
@@ -509,29 +512,23 @@ export const AnalyzeView: React.FC<AnalyzeViewProps> = ({ layers, onFilterChange
         }
     }, [selectedLayerId]); // Only trigger when ID actually changes
 
-    // Calculate Filtered Features
-    useEffect(() => {
-        if (!selectedLayer) {
-            onFilterChange(null, null);
-            return;
-        }
-
+    // Calculate Filtered Features (for cross-filtering across all widgets)
+    const filteredFeatures = useMemo(() => {
+        if (!selectedLayer) return [];
+        
         const activeFilterKeys = Object.keys(filters);
         
         if (activeFilterKeys.length === 0) {
-            // No filters active, pass original data
-            onFilterChange(selectedLayer.id, selectedLayer.data.features);
-            return;
+            return selectedLayer.data.features;
         }
 
-        const filtered = selectedLayer.data.features.filter(f => {
+        return selectedLayer.data.features.filter(f => {
             return activeFilterKeys.every(attr => {
                 const val = f.properties?.[attr];
                 const filterValue = filters[attr];
 
                 // 1. Numerical Range Filter
                 if (filterValue && typeof filterValue === 'object' && 'min' in filterValue && 'max' in filterValue) {
-                     // Cast to number, treat null/undefined as invalid for range logic (or user preference)
                      const numVal = Number(val);
                      if (isNaN(numVal)) return false; 
                      return numVal >= filterValue.min && numVal <= filterValue.max;
@@ -546,10 +543,16 @@ export const AnalyzeView: React.FC<AnalyzeViewProps> = ({ layers, onFilterChange
                 return true;
             });
         });
-
-        onFilterChange(selectedLayer.id, filtered);
-
     }, [selectedLayer, filters]);
+
+    // Notify parent of filter changes
+    useEffect(() => {
+        if (!selectedLayer) {
+            onFilterChange(null, null);
+            return;
+        }
+        onFilterChange(selectedLayer.id, filteredFeatures);
+    }, [selectedLayer, filteredFeatures, onFilterChange]);
 
 
     const toggleAttribute = (attr: string) => {
@@ -652,6 +655,60 @@ export const AnalyzeView: React.FC<AnalyzeViewProps> = ({ layers, onFilterChange
         }
     };
 
+    const handleCutByBoundary = async (boundaryLayerId: string) => {
+        if (!selectedLayer) return;
+        
+        const boundaryLayer = layers.find(l => l.id === boundaryLayerId);
+        if (!boundaryLayer) return;
+        
+        // Find the first polygon feature to use as boundary
+        const boundaryPolygon = boundaryLayer.data.features.find(f => f.geometry?.type === 'Polygon' || f.geometry?.type === 'MultiPolygon');
+        if (!boundaryPolygon) {
+            alert('Selected boundary layer has no polygon features.');
+            return;
+        }
+
+        setIsCuttingByBoundary(true);
+        try {
+            console.log(`✂️ Cutting ${selectedLayer.name} by boundary from ${boundaryLayer.name}...`);
+            
+            // Filter features using the boundary polygon
+            const filteredFeatures = filterFeaturesByPolygon(selectedLayer.data.features, boundaryPolygon);
+            
+            if (filteredFeatures.length === 0) {
+                alert('No features found inside the selected boundary.');
+                setShowCutByBoundaryModal(false);
+                return;
+            }
+
+            if (onAddLayer) {
+                const cutLayer: Layer = {
+                    id: `cut-${selectedLayer.id}-${Date.now()}`,
+                    name: `${selectedLayer.name} - Cut by ${boundaryLayer.name}`,
+                    visible: true,
+                    data: {
+                        type: 'FeatureCollection',
+                        features: filteredFeatures
+                    },
+                    color: selectedLayer.color || '#8b5cf6',
+                    opacity: selectedLayer.opacity || 0.8,
+                    type: selectedLayer.type,
+                    grid: selectedLayer.grid,
+                    lastUpdated: Date.now()
+                };
+                onAddLayer(cutLayer);
+                console.log(`✅ Created new layer with ${filteredFeatures.length} features inside boundary`);
+                alert(`✅ Created "${cutLayer.name}" with ${filteredFeatures.length} features.`);
+            }
+        } catch (error: any) {
+            console.error('Cut by boundary error:', error);
+            alert(`Error: ${error.message}`);
+        } finally {
+            setIsCuttingByBoundary(false);
+            setShowCutByBoundaryModal(false);
+        }
+    };
+
     if (!selectedLayer) {
         return <div className="p-8 text-center text-slate-400">No layers available to analyze.</div>;
     }
@@ -705,6 +762,14 @@ export const AnalyzeView: React.FC<AnalyzeViewProps> = ({ layers, onFilterChange
                                 <User size={14} />
                                 {isGeneratingIsochrone ? 'Generating...' : 'Walking Distance 5,10,15 min'}
                             </button>
+                            <button
+                                onClick={() => setShowCutByBoundaryModal(true)}
+                                disabled={!selectedLayer || isCuttingByBoundary}
+                                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg text-xs font-bold hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                <Scissors size={14} />
+                                {isCuttingByBoundary ? 'Cutting...' : 'Cut by Boundary'}
+                            </button>
                         </div>
                     </div>
 
@@ -743,7 +808,7 @@ export const AnalyzeView: React.FC<AnalyzeViewProps> = ({ layers, onFilterChange
                             <AttributeWidget 
                                 key={attr}
                                 attribute={attr}
-                                features={selectedLayer.data.features} // Pass full features, widget calculates stats
+                                features={filteredFeatures} // Pass filtered features for cross-filtering
                                 activeFilters={filters[attr]}
                                 onToggleFilter={(val) => toggleFilter(attr, val)}
                             />
@@ -751,6 +816,56 @@ export const AnalyzeView: React.FC<AnalyzeViewProps> = ({ layers, onFilterChange
                     </div>
                 )}
             </div>
+
+            {/* Cut by Boundary Modal */}
+            {showCutByBoundaryModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg shadow-xl p-6 w-96 max-h-96 overflow-hidden flex flex-col">
+                        <h2 className="text-lg font-bold text-slate-800 mb-4">Select Boundary Polygon</h2>
+                        
+                        {/* List of polygon layers with single feature */}
+                        <div className="flex-1 overflow-y-auto mb-4 custom-scrollbar">
+                            {layers
+                                .filter(l => 
+                                    l.type === 'polygon' && 
+                                    l.data.features.length === 1 &&
+                                    l.id !== selectedLayerId
+                                )
+                                .length === 0 ? (
+                                <div className="text-center text-slate-400 text-sm py-4">
+                                    <p>No polygon layers with single boundary found.</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-2">
+                                    {layers
+                                        .filter(l => 
+                                            l.type === 'polygon' && 
+                                            l.data.features.length === 1 &&
+                                            l.id !== selectedLayerId
+                                        )
+                                        .map(layer => (
+                                            <button
+                                                key={layer.id}
+                                                onClick={() => handleCutByBoundary(layer.id)}
+                                                className="w-full text-left px-3 py-2 rounded-lg hover:bg-purple-100 border border-slate-200 hover:border-purple-300 transition-colors text-sm font-medium text-slate-700"
+                                            >
+                                                {layer.name}
+                                            </button>
+                                        ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Close Button */}
+                        <button
+                            onClick={() => setShowCutByBoundaryModal(false)}
+                            className="w-full px-4 py-2 bg-slate-200 text-slate-700 rounded-lg font-medium hover:bg-slate-300 transition-colors text-sm"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
