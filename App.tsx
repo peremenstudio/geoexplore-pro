@@ -11,6 +11,7 @@ import { fetchNominatimPlaces } from './utils/nominatim';
 import { fetchOverpassData } from './utils/overpass';
 import { fetchDetailedNadlanTransactions } from './utils/nadlanApi';
 import { fetchTelAvivSportsFields } from './utils/telAvivGis';
+import { fetchJerusalemLayer, JERUSALEM_CATEGORIES } from './utils/jerusalemGis';
 import { Layer, AppView } from './types';
 import { Menu, Map as MapIcon, Database, Layers, Compass, BarChart3, Loader2, Box, Download, Globe, Home, Crosshair, Search, Info, Building, Flag, ShoppingCart, ChevronDown, ChevronRight } from 'lucide-react';
 import { Feature, GeoJsonProperties } from 'geojson';
@@ -40,6 +41,7 @@ export default function App() {
   // New Fetch UI State
   const [expandedCategory, setExpandedCategory] = useState<'urban' | 'national' | 'commercial' | null>(null);
   const [selectedCity, setSelectedCity] = useState<string>('');
+  const [expandedJerusalemCategory, setExpandedJerusalemCategory] = useState<string | null>(null);
 
   // Analyze State
   const [analyzedLayerId, setAnalyzedLayerId] = useState<string | null>(null);
@@ -362,6 +364,36 @@ export default function App() {
     }
   };
 
+  const handleFetchJerusalemLayer = async (layerId: number, layerName: string, color: string) => {
+    setIsLoading(true);
+    try {
+        const features = await fetchJerusalemLayer(layerId);
+        
+        if (features.length === 0) {
+            alert(`No data found for ${layerName}`);
+        } else {
+            const newLayer: Layer = {
+                id: `jlm-${layerId}-${Date.now()}`,
+                name: `Jerusalem - ${layerName}`,
+                visible: true,
+                data: { type: 'FeatureCollection', features },
+                color: color,
+                opacity: 0.7,
+                type: 'point',
+                grid: { show: false, showLabels: false, size: 0.5, opacity: 0.5 },
+                lastUpdated: Date.now()
+            };
+            setLayers(prev => [...prev, newLayer]);
+            setZoomToLayerId(newLayer.id);
+            setRightPanelMode('layer');
+        }
+    } catch (e: any) {
+        alert(`Error: ${e.message}`);
+    } finally {
+        setIsLoading(false);
+    }
+  };
+
   const toggleLayerVisibility = (id: string) => {
     setLayers(prev => prev.map(l => l.id === id ? { ...l, visible: !l.visible } : l));
   };
@@ -556,6 +588,10 @@ export default function App() {
                         setAnalyzedLayerId(layerId);
                         setFilteredFeatures(features);
                     }}
+                    onAddLayer={(newLayer) => {
+                        setLayers(prev => [...prev, newLayer]);
+                        setZoomToLayerId(newLayer.id);
+                    }}
                  />
              </div>
           )}
@@ -671,7 +707,48 @@ export default function App() {
                                 </>
                               )}
 
-                              {selectedCity !== 'tel-aviv' && (
+                              {selectedCity === 'jerusalem' && (
+                                <div className="space-y-2">
+                                  {JERUSALEM_CATEGORIES.map((category) => (
+                                    <div key={category.id} className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                                      <button
+                                        onClick={() => setExpandedJerusalemCategory(expandedJerusalemCategory === category.id ? null : category.id)}
+                                        className="w-full flex items-center justify-between p-2.5 hover:bg-slate-50 transition-colors"
+                                      >
+                                        <span className="text-sm font-semibold text-slate-700">{category.name}</span>
+                                        {expandedJerusalemCategory === category.id ? 
+                                          <ChevronDown size={16} className="text-slate-400" /> : 
+                                          <ChevronRight size={16} className="text-slate-400" />
+                                        }
+                                      </button>
+                                      
+                                      {expandedJerusalemCategory === category.id && (
+                                        <div className="border-t border-slate-100 bg-slate-50 p-2 space-y-1.5">
+                                          {category.layers.map((layer) => (
+                                            <button
+                                              key={layer.id}
+                                              onClick={() => handleFetchJerusalemLayer(layer.id, layer.name, layer.color)}
+                                              disabled={isLoading}
+                                              className="w-full flex items-center justify-between p-2.5 bg-white rounded-md border border-slate-200 hover:border-slate-300 hover:shadow-sm transition-all group disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                              <div className="flex items-center gap-2">
+                                                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: layer.color }}></div>
+                                                <span className="text-xs font-medium text-slate-700">{layer.name}</span>
+                                              </div>
+                                              {isLoading ? 
+                                                <Loader2 size={12} className="animate-spin text-slate-600" /> : 
+                                                <Download size={12} className="text-slate-400 group-hover:text-slate-600" />
+                                              }
+                                            </button>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {selectedCity !== 'tel-aviv' && selectedCity !== 'jerusalem' && (
                                 <div className="p-4 bg-slate-100 rounded-lg border border-slate-200">
                                   <p className="text-sm text-slate-500 italic text-center">Layers for this city coming soon</p>
                                 </div>

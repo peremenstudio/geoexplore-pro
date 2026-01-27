@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Layer } from '../types';
 import { Feature } from 'geojson';
-import { BarChart3, Filter, PieChart, Layers, Check, X, MoreHorizontal, LayoutGrid, List, AlignVerticalJustifyEnd } from 'lucide-react';
+import { BarChart3, Filter, PieChart, Layers, Check, X, MoreHorizontal, LayoutGrid, List, AlignVerticalJustifyEnd, Map as MapIcon, Clock, User } from 'lucide-react';
+import { generateWalkingIsochrones } from '../utils/spatialAnalysis';
 
 interface AnalyzeViewProps {
     layers: Layer[];
     onFilterChange: (layerId: string | null, features: Feature[] | null) => void;
+    onAddLayer?: (layer: Layer) => void;
 }
 
 type ChartType = 'bar' | 'column' | 'donut' | 'treemap';
@@ -472,12 +474,15 @@ const AttributeWidget: React.FC<{
     );
 };
 
-export const AnalyzeView: React.FC<AnalyzeViewProps> = ({ layers, onFilterChange }) => {
+export const AnalyzeView: React.FC<AnalyzeViewProps> = ({ layers, onFilterChange, onAddLayer }) => {
     const [selectedLayerId, setSelectedLayerId] = useState<string>('');
     const [selectedAttributes, setSelectedAttributes] = useState<string[]>([]);
     
     // Filter State: supports categories (string[]) or ranges ({min, max})
     const [filters, setFilters] = useState<Record<string, FilterValue>>({});
+    
+    // Spatial Analysis State
+    const [isGeneratingIsochrone, setIsGeneratingIsochrone] = useState(false);
 
     const selectedLayer = layers.find(l => l.id === selectedLayerId);
 
@@ -579,6 +584,74 @@ export const AnalyzeView: React.FC<AnalyzeViewProps> = ({ layers, onFilterChange
 
     const clearFilters = () => setFilters({});
 
+    const handleGenerateIsochrones = async () => {
+        if (!selectedLayer) return;
+        
+        // Find ALL point features in the layer
+        const pointFeatures = selectedLayer.data.features.filter(f => f.geometry?.type === 'Point');
+        if (pointFeatures.length === 0) {
+            alert('Please select a layer with point features to generate isochrones.');
+            return;
+        }
+        
+        setIsGeneratingIsochrone(true);
+        try {
+            console.log(`🎯 Generating isochrones for ${pointFeatures.length} point(s)...`);
+            
+            // Collect all isochrone features from all points
+            const allIsochroneFeatures: any[] = [];
+            
+            // Process each point sequentially to avoid rate limits
+            for (let i = 0; i < pointFeatures.length; i++) {
+                const feature = pointFeatures[i];
+                const coords = (feature.geometry.coordinates) as [number, number];
+                console.log(`📍 Point ${i + 1}/${pointFeatures.length}:`, coords);
+                
+                const isochrones = await generateWalkingIsochrones(coords, [5, 10, 15]);
+                
+                // Add point identifier to each isochrone
+                isochrones.features.forEach(isoFeature => {
+                    isoFeature.properties = {
+                        ...isoFeature.properties,
+                        pointIndex: i + 1,
+                        sourcePoint: coords
+                    };
+                });
+                
+                allIsochroneFeatures.push(...isochrones.features);
+                
+                // Small delay between points to avoid rate limiting
+                if (i < pointFeatures.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                }
+            }
+            
+            if (onAddLayer && allIsochroneFeatures.length > 0) {
+                const isochroneLayer: Layer = {
+                    id: `isochrone-${selectedLayer.id}-${Date.now()}`,
+                    name: `Walking Isochrones - ${selectedLayer.name} (${pointFeatures.length} pts)`,
+                    visible: true,
+                    data: {
+                        type: 'FeatureCollection',
+                        features: allIsochroneFeatures
+                    },
+                    color: '#8b5cf6',
+                    opacity: 0.4,
+                    type: 'polygon',
+                    grid: { show: false, showLabels: false, size: 0.5, opacity: 0.5 },
+                    lastUpdated: Date.now()
+                };
+                onAddLayer(isochroneLayer);
+                console.log(`✅ Generated ${allIsochroneFeatures.length} isochrones for ${pointFeatures.length} points`);
+            }
+        } catch (error: any) {
+            console.error('Isochrone generation error:', error);
+            alert(`Error: ${error.message}`);
+        } finally {
+            setIsGeneratingIsochrone(false);
+        }
+    };
+
     if (!selectedLayer) {
         return <div className="p-8 text-center text-slate-400">No layers available to analyze.</div>;
     }
@@ -609,7 +682,7 @@ export const AnalyzeView: React.FC<AnalyzeViewProps> = ({ layers, onFilterChange
                     {/* Layer Selector */}
                     <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Source Layer</label>
-                        <div className="relative">
+                        <div className="relative mb-3">
                             <Layers className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                             <select 
                                 value={selectedLayerId}
@@ -620,6 +693,18 @@ export const AnalyzeView: React.FC<AnalyzeViewProps> = ({ layers, onFilterChange
                                     <option key={l.id} value={l.id}>{l.name}</option>
                                 ))}
                             </select>
+                        </div>
+                        
+                        {/* Spatial Analysis Buttons */}
+                        <div className="space-y-2">
+                            <button
+                                onClick={handleGenerateIsochrones}
+                                disabled={isGeneratingIsochrone}
+                                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg text-xs font-bold hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                <User size={14} />
+                                {isGeneratingIsochrone ? 'Generating...' : 'Walking Distance 5,10,15 min'}
+                            </button>
                         </div>
                     </div>
 

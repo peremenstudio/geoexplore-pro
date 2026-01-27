@@ -51,12 +51,18 @@ interface ArcGISResponse {
  */
 export const fetchTelAvivSportsFields = async (): Promise<Feature[]> => {
     const url = 'https://gisn.tel-aviv.gov.il/arcgis/rest/services/IView2/MapServer/943/query?where=1%3D1&outFields=*&f=json';
-    
+    return fetchArcGISLayer(url);
+};
+
+/**
+ * Generic function to fetch any ArcGIS layer by URL
+ */
+export const fetchArcGISLayer = async (layerUrl: string): Promise<Feature[]> => {
     try {
-        const response = await fetch(url);
+        const response = await fetch(layerUrl);
         
         if (!response.ok) {
-            throw new Error(`Tel Aviv GIS API failed: ${response.statusText}`);
+            throw new Error(`ArcGIS API failed: ${response.statusText}`);
         }
 
         const data: ArcGISResponse = await response.json();
@@ -98,16 +104,15 @@ export const fetchTelAvivSportsFields = async (): Promise<Feature[]> => {
 
                 // Extract meaningful properties
                 const attrs = item.attributes;
-                const name = attrs.NAME || attrs.name || attrs.OBJECTID || `Sports Field ${index + 1}`;
+                const name = attrs.NAME || attrs.name || attrs.OBJECTID || `Feature ${index + 1}`;
                 
                 return {
                     type: 'Feature',
                     geometry,
                     properties: {
-                        id: `tlv-sports-${attrs.OBJECTID || index}`,
+                        id: `arcgis-${attrs.OBJECTID || index}`,
                         name: name,
-                        ...attrs,
-                        source: 'Tel Aviv Municipality'
+                        ...attrs
                     }
                 };
             });
@@ -115,7 +120,7 @@ export const fetchTelAvivSportsFields = async (): Promise<Feature[]> => {
         return features;
 
     } catch (error: any) {
-        console.error('Tel Aviv GIS Error:', error);
-        throw new Error(`Failed to fetch Tel Aviv sports fields: ${error.message}`);
+        console.error('ArcGIS Error:', error);
+        throw new Error(`Failed to fetch layer: ${error.message}`);
     }
 };
