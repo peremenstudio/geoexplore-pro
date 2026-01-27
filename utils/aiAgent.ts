@@ -37,11 +37,11 @@ Each object in the array must follow this schema:
 `;
 
 export const fetchAIPlaces = async (query: string): Promise<Feature[]> => {
-    // API Key configuration: process.env.API_KEY is prioritized, falling back to the user-provided key.
-    const apiKey = process.env.API_KEY || 'AIzaSyDs3x5NVfiRiTjd4lKIY6wWXRZBZkzyPrc';
+    // API Key configuration: process.env.API_KEY is prioritized, falling back to process.env.GEMINI_API_KEY
+    const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
-        throw new Error("API Key is missing. Please ensure process.env.API_KEY is configured.");
+        throw new Error("API Key is missing. Please ensure GEMINI_API_KEY is configured in your .env file.");
     }
 
     try {

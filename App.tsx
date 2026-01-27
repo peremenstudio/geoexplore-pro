@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { LayerManager } from './components/LayerManager';
 import { MapArea } from './components/MapArea';
+import { MapboxMap } from './components/MapboxMap';
 import { DataExplorer } from './components/DataExplorer';
 import { ExploreView } from './components/ExploreView';
 import { AnalyzeView } from './components/AnalyzeView';
@@ -9,7 +10,7 @@ import { processFile } from './utils/fileProcessor';
 import { fetchNominatimPlaces } from './utils/nominatim';
 import { fetchDetailedNadlanTransactions } from './utils/nadlanApi';
 import { Layer, AppView } from './types';
-import { Menu, Map as MapIcon, Database, Layers, Compass, BarChart3, Loader2 } from 'lucide-react';
+import { Menu, Map as MapIcon, Database, Layers, Compass, BarChart3, Loader2, Box } from 'lucide-react';
 import { Feature, GeoJsonProperties } from 'geojson';
 
 export default function App() {
@@ -17,6 +18,7 @@ export default function App() {
   const [activeView, setActiveView] = useState<AppView>('map');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isLayerPanelOpen, setIsLayerPanelOpen] = useState(true);
+  const [is3DMode, setIs3DMode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [zoomToLayerId, setZoomToLayerId] = useState<string | null>(null);
   
@@ -435,13 +437,22 @@ export default function App() {
                   </div>
               )}
               {activeView === 'map' && (
-                <button 
-                    onClick={() => setIsLayerPanelOpen(!isLayerPanelOpen)}
-                    className={`p-2.5 rounded-lg transition-all ${isLayerPanelOpen ? 'bg-coral-50 text-coral-600 ring-1 ring-coral-200' : 'text-slate-500 hover:bg-slate-100'}`}
-                    title="Layer Management"
-                >
-                    <Layers size={20} />
-                </button>
+                <>
+                  <button 
+                      onClick={() => setIs3DMode(!is3DMode)}
+                      className={`p-2.5 rounded-lg transition-all ${is3DMode ? 'bg-purple-50 text-purple-600 ring-1 ring-purple-200' : 'text-slate-500 hover:bg-slate-100'}`}
+                      title={is3DMode ? 'Switch to 2D' : 'Switch to 3D'}
+                  >
+                      <Box size={20} />
+                  </button>
+                  <button 
+                      onClick={() => setIsLayerPanelOpen(!isLayerPanelOpen)}
+                      className={`p-2.5 rounded-lg transition-all ${isLayerPanelOpen ? 'bg-coral-50 text-coral-600 ring-1 ring-coral-200' : 'text-slate-500 hover:bg-slate-100'}`}
+                      title="Layer Management"
+                  >
+                      <Layers size={20} />
+                  </button>
+                </>
               )}
            </div>
         </div>
@@ -449,17 +460,31 @@ export default function App() {
         <div className="flex-1 relative overflow-hidden bg-slate-50">
           {/* Map - Always in background */}
           <div className="absolute inset-0">
-            <MapArea 
-              layers={displayLayers} 
-              draftFeatures={draftFeatures}
-              zoomToLayerId={zoomToLayerId}
-              onZoomComplete={() => setZoomToLayerId(null)}
-              onUpdateFeature={handleUpdateFeature}
-              isPickingLocation={isPickingLocation || isPickingFetch}
-              onMapClick={handleMapClick}
-              fetchLocation={fetchLocation}
-              fetchRadius={fetchRadius}
-            />
+            {is3DMode ? (
+              <MapboxMap 
+                layers={displayLayers} 
+                draftFeatures={draftFeatures}
+                zoomToLayerId={zoomToLayerId}
+                onZoomComplete={() => setZoomToLayerId(null)}
+                onUpdateFeature={handleUpdateFeature}
+                isPickingLocation={isPickingLocation || isPickingFetch}
+                onMapClick={handleMapClick}
+                fetchLocation={fetchLocation}
+                fetchRadius={fetchRadius}
+              />
+            ) : (
+              <MapArea 
+                layers={displayLayers} 
+                draftFeatures={draftFeatures}
+                zoomToLayerId={zoomToLayerId}
+                onZoomComplete={() => setZoomToLayerId(null)}
+                onUpdateFeature={handleUpdateFeature}
+                isPickingLocation={isPickingLocation || isPickingFetch}
+                onMapClick={handleMapClick}
+                fetchLocation={fetchLocation}
+                fetchRadius={fetchRadius}
+              />
+            )}
           </div>
           
           {activeView === 'analyze' && (

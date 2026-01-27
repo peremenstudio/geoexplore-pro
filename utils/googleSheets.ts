@@ -29,25 +29,45 @@ function extractSheetId(url: string): string {
 function findCoordinateColumns(headers: string[]): { lat: number; lng: number } | null {
   const lowerHeaders = headers.map(h => h.toLowerCase().trim());
   
-  // Common latitude column names
-  const latPatterns = ['lat', 'latitude', 'y', 'north'];
-  // Common longitude column names
-  const lngPatterns = ['lng', 'lon', 'longitude', 'x', 'east'];
+  // Common latitude column names (ordered by priority)
+  const latPatterns = ['latitude', 'lat', 'y', 'north', 'широта'];
+  // Common longitude column names (ordered by priority)
+  const lngPatterns = ['longitude', 'lng', 'lon', 'x', 'east', 'долгота'];
 
   let latCol = -1;
   let lngCol = -1;
+  let latScore = -1;
+  let lngScore = -1;
 
   for (let i = 0; i < lowerHeaders.length; i++) {
     const header = lowerHeaders[i];
     
-    if (latPatterns.some(p => header.includes(p))) {
-      latCol = i;
+    // Match latitude with priority
+    for (let j = 0; j < latPatterns.length; j++) {
+      if (header.includes(latPatterns[j])) {
+        if (j > latScore) {
+          latCol = i;
+          latScore = j;
+        }
+        break;
+      }
     }
-    if (lngPatterns.some(p => header.includes(p))) {
-      lngCol = i;
+    
+    // Match longitude with priority
+    for (let j = 0; j < lngPatterns.length; j++) {
+      if (header.includes(lngPatterns[j])) {
+        if (j > lngScore) {
+          lngCol = i;
+          lngScore = j;
+        }
+        break;
+      }
     }
   }
 
+  console.log('Sheet headers found:', headers);
+  console.log('Detected lat column index:', latCol, 'lng column index:', lngCol);
+  
   if (latCol !== -1 && lngCol !== -1) {
     return { lat: latCol, lng: lngCol };
   }
@@ -156,13 +176,54 @@ function convertToGeoJSON(
 }
 
 /**
+ * Fetches sheet headers and preview data
+ * @param sheetUrl - Google Sheets URL or ID
+ * @param gid - Sheet tab ID (default 0 for first sheet)
+ * @returns Headers array and preview rows
+ */
+export async function fetchSheetHeaders(
+  sheetUrl: string,
+  gid: string = '0'
+): Promise<{ headers: string[]; rows: string[][] }> {
+  try {
+    const sheetId = extractSheetId(sheetUrl);
+    
+    // Export sheet as CSV
+    const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
+    
+    const response = await fetch(csvUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch sheet: ${response.statusText}`);
+    }
+
+    const csv = await response.text();
+    const rows = parseCSV(csv);
+
+    if (rows.length === 0) {
+      throw new Error('Sheet is empty');
+    }
+
+    return { headers: rows[0], rows };
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Failed to fetch sheet headers');
+  }
+}
+
+/**
  * Fetches and processes Google Sheets data
  * @param sheetUrl - Google Sheets URL or ID
+ * @param latCol - Index of latitude column
+ * @param lngCol - Index of longitude column
  * @param gid - Sheet tab ID (default 0 for first sheet)
  * @returns GeoJSON FeatureCollection
  */
 export async function fetchGoogleSheetGeoJSON(
   sheetUrl: string,
+  latCol: number,
+  lngCol: number,
   gid: string = '0'
 ): Promise<FeatureCollection> {
   try {
@@ -179,12 +240,7 @@ export async function fetchGoogleSheetGeoJSON(
     const csv = await response.text();
     const rows = parseCSV(csv);
 
-    const coordCols = findCoordinateColumns(rows[0]);
-    if (!coordCols) {
-      throw new Error('Could not find latitude/longitude columns. Expected headers like "latitude", "longitude" or "lat", "lng"');
-    }
-
-    return convertToGeoJSON(rows, coordCols);
+    return convertToGeoJSON(rows, { lat: latCol, lng: lngCol });
   } catch (error) {
     if (error instanceof Error) {
       throw error;

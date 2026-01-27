@@ -655,8 +655,10 @@ export const MapArea: React.FC<MapAreaProps> = ({
         <MapEvents isPickingLocation={isPickingLocation} onMapClick={onMapClick} />
         
         <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-            url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+            attribution='&copy; <a href="https://www.mapbox.com/">Mapbox</a>'
+            url={`https://api.mapbox.com/styles/v1/aperemen/cmixbm8te001701s6c99l6o0z/tiles/{z}/{x}/{y}?access_token=${process.env.MAPBOX_TOKEN || 'pk.eyJ1IjoiYXBlcmVtZW4iLCJhIjoiY2p2M2g3N2Y4MDk2bDRlcDJ2Y3R0dnNocCJ9.oMUpX3SDvmCFGW1o9qkzoQ'}`}
+            tileSize={512}
+            zoomOffset={-1}
         />
         
         {/* Render Layers using separate component to handle schema calculation per layer */}

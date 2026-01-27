@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Layer } from '../types';
 import { Search, ChevronLeft, ChevronRight, FileText, Download, Merge, AlertTriangle, X, Upload, Loader2, Link2 } from 'lucide-react';
-import { fetchGoogleSheetGeoJSON, isValidSheetUrl } from '../utils/googleSheets';
+import { fetchGoogleSheetGeoJSON, fetchSheetHeaders, isValidSheetUrl } from '../utils/googleSheets';
 
 interface DataExplorerProps {
   layers: Layer[];
@@ -27,10 +27,13 @@ export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayer
   const [sheetUrl, setSheetUrl] = useState('');
   const [sheetError, setSheetError] = useState<string | null>(null);
   const [isLoadingSheet, setIsLoadingSheet] = useState(false);
+    const [sheetHeaders, setSheetHeaders] = useState<string[]>([]);
+    const [selectedLatCol, setSelectedLatCol] = useState<number>(-1);
+    const [selectedLngCol, setSelectedLngCol] = useState<number>(-1);
 
+  // Get the selected layer
   const selectedLayer = layers.find(l => l.id === selectedLayerId);
 
-  // Flatten features into table rows
   const tableData = useMemo(() => {
       if (!selectedLayer) return { headers: [], rows: [] };
 
@@ -132,7 +135,7 @@ export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayer
     if (firstOption) setMergeSourceId(firstOption.id);
   };
 
-  const handleLoadGoogleSheet = async () => {
+  const handleFetchHeaders = async () => {
     if (!sheetUrl.trim()) {
       setSheetError('Please enter a Google Sheets URL or ID');
       return;
@@ -147,7 +150,85 @@ export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayer
     setSheetError(null);
 
     try {
-      const geojson = await fetchGoogleSheetGeoJSON(sheetUrl);
+      const { headers } = await fetchSheetHeaders(sheetUrl);
+      setSheetHeaders(headers);
+      
+      // Try to auto-detect lat/lng columns
+      const lowerHeaders = headers.map(h => h.toLowerCase().trim());
+      const latIdx = lowerHeaders.findIndex(h => h.includes('lat'));
+      const lngIdx = lowerHeaders.findIndex(h => h.includes('lon') || h.includes('lng'));
+      
+      setSelectedLatCol(latIdx >= 0 ? latIdx : -1);
+      setSelectedLngCol(lngIdx >= 0 ? lngIdx : -1);
+    } catch (error) {
+      setSheetError(error instanceof Error ? error.message : 'Failed to fetch sheet headers');
+      setSheetHeaders([]);
+    } finally {
+      setIsLoadingSheet(false);
+    }
+  };
+
+  const handleLoadGoogleSheet = async () => {
+    if (selectedLatCol === -1 || selectedLngCol === -1) {
+      setSheetError('Please select both latitude and longitude columns');
+      return;
+    }
+
+    setIsLoadingSheet(true);
+    setSheetError(null);
+
+    try {
+      const geojson = await fetchGoogleSheetGeoJSON(sheetUrl, selectedLatCol, selectedLngCol);
+      
+      if (!onAddLayer) {
+        throw new Error('Layer addition not supported');
+      }
+
+      const newLayer: Layer = {
+        id: `sheet-${Date.now()}`,
+        name: `Google Sheet ${new Date().toLocaleString()}`,
+        data: geojson,
+        visible: true,
+        color: '#3B82F6',
+        opacity: 0.7,
+        type: 'point',
+        grid: {
+          show: false,
+          showLabels: false,
+          size: 10,
+          opacity: 0.3
+        }
+      };
+
+      onAddLayer(newLayer);
+      setIsSheetModalOpen(false);
+      setSheetUrl('');
+      setSheetHeaders([]);
+      setSelectedLatCol(-1);
+      setSelectedLngCol(-1);
+    } catch (error) {
+      setSheetError(error instanceof Error ? error.message : 'Failed to load sheet');
+    } finally {
+      setIsLoadingSheet(false);
+    }
+  };
+
+  const handleLoadGoogleSheetOLD = async () => {
+    if (!sheetUrl.trim()) {
+      setSheetError('Please enter a Google Sheets URL or ID');
+      return;
+    }
+
+    if (!isValidSheetUrl(sheetUrl)) {
+      setSheetError('Invalid Google Sheets URL');
+      return;
+    }
+
+    setIsLoadingSheet(true);
+    setSheetError(null);
+
+    try {
+      const geojson = await fetchGoogleSheetGeoJSON(sheetUrl, 0, 1);
       
       const newLayer: Layer = {
         id: `sheet-${Date.now()}`,
@@ -186,7 +267,7 @@ export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayer
 
   if (layers.length === 0) {
       return (
-          <div className="flex flex-col items-center justify-center h-full text-slate-400">
+          <div className="flex flex-col items-center justify-center h-full text-slate-400 relative">
               <div className="bg-slate-100 p-6 rounded-full mb-4">
                   <FileText size={48} className="opacity-50 text-slate-500" />
               </div>
@@ -222,6 +303,155 @@ export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayer
                 <Link2 size={18} />
                 Link Google Sheet
               </button>
+
+              {/* Google Sheets Modal in empty state */}
+              {isSheetModalOpen && (
+                  <div className="fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md border border-slate-200 animate-in zoom-in-95 duration-200">
+                          <div className="p-6 border-b border-slate-200">
+                              <div className="flex items-center justify-between">
+                                  <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                      <Link2 size={20} className="text-blue-600" />
+                                      Link Google Sheet
+                                  </h3>
+                                  <button 
+                                      onClick={() => {
+                                        setIsSheetModalOpen(false);
+                                        setSheetUrl('');
+                                        setSheetError(null);
+                                      }}
+                                      className="p-1 hover:bg-slate-100 rounded-lg text-slate-500"
+                                  >
+                                      <X size={20} />
+                                  </button>
+                              </div>
+                          </div>
+
+                          <div className="p-6 space-y-4">
+                              <div>
+                                  <label className="block text-sm font-semibold text-slate-700 mb-2">
+                                      Google Sheets URL or ID
+                                  </label>
+                                  <div className="flex gap-2">
+                                      <input
+                                          type="text"
+                                          value={sheetUrl}
+                                          onChange={(e) => {
+                                            setSheetUrl(e.target.value);
+                                            setSheetError(null);
+                                            setSheetHeaders([]);
+                                          }}
+                                          placeholder="https://docs.google.com/spreadsheets/d/..."
+                                          className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-slate-400"
+                                      />
+                                      <button
+                                          onClick={handleFetchHeaders}
+                                          disabled={isLoadingSheet || !sheetUrl.trim()}
+                                          className="px-4 py-2.5 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-md flex items-center gap-2 whitespace-nowrap"
+                                      >
+                                          {isLoadingSheet ? (
+                                              <Loader2 size={16} className="animate-spin" />
+                                          ) : (
+                                              'Fetch Columns'
+                                          )}
+                                      </button>
+                                  </div>
+                                  <p className="text-xs text-slate-500 mt-2">
+                                      The sheet must be publicly accessible (Anyone with link can view).
+                                  </p>
+                              </div>
+
+                              {sheetHeaders.length > 0 && (
+                                  <>
+                                      <div>
+                                          <label className="block text-sm font-semibold text-slate-700 mb-2">
+                                              Latitude Column
+                                          </label>
+                                          <select
+                                              value={selectedLatCol}
+                                              onChange={(e) => setSelectedLatCol(Number(e.target.value))}
+                                              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                                          >
+                                              <option value={-1}>-- Select Latitude Column --</option>
+                                              {sheetHeaders.map((header, idx) => (
+                                                  <option key={idx} value={idx}>{header}</option>
+                                              ))}
+                                          </select>
+                                      </div>
+
+                                      <div>
+                                          <label className="block text-sm font-semibold text-slate-700 mb-2">
+                                              Longitude Column
+                                          </label>
+                                          <select
+                                              value={selectedLngCol}
+                                              onChange={(e) => setSelectedLngCol(Number(e.target.value))}
+                                              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                                          >
+                                              <option value={-1}>-- Select Longitude Column --</option>
+                                              {sheetHeaders.map((header, idx) => (
+                                                  <option key={idx} value={idx}>{header}</option>
+                                              ))}
+                                          </select>
+                                      </div>
+                                  </>
+                              )}
+
+                              {sheetHeaders.length === 0 && (
+                                  <div>
+                                      <label className="block text-sm font-semibold text-slate-700 mb-2">
+                                          Requirements
+                                      </label>
+                                      <ul className="text-xs text-slate-600 space-y-1">
+                                          <li>✓ Sheet must contain latitude and longitude columns</li>
+                                          <li>✓ First row should be headers</li>
+                                          <li>✓ Share settings: Anyone with link can view</li>
+                                      </ul>
+                                  </div>
+                              )}
+
+                              {sheetError && (
+                                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                                      {sheetError}
+                                  </div>
+                              )}
+
+                              <div className="flex gap-3 pt-2">
+                                  <button 
+                                      onClick={() => {
+                                        setIsSheetModalOpen(false);
+                                        setSheetUrl('');
+                                        setSheetError(null);
+                                        setSheetHeaders([]);
+                                        setSelectedLatCol(-1);
+                                        setSelectedLngCol(-1);
+                                      }}
+                                      className="flex-1 py-2.5 border border-slate-200 rounded-lg text-slate-600 font-semibold hover:bg-slate-50 transition-colors"
+                                  >
+                                      Cancel
+                                  </button>
+                                  <button 
+                                      onClick={handleLoadGoogleSheet}
+                                      disabled={isLoadingSheet || sheetHeaders.length === 0 || selectedLatCol === -1 || selectedLngCol === -1}
+                                      className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-md flex items-center justify-center gap-2"
+                                  >
+                                      {isLoadingSheet ? (
+                                          <>
+                                              <Loader2 size={16} className="animate-spin" />
+                                              Loading...
+                                          </>
+                                      ) : (
+                                          <>
+                                              <Link2 size={16} />
+                                              Link Sheet
+                                          </>
+                                      )}
+                                  </button>
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+              )}
           </div>
       );
   }
@@ -542,6 +772,158 @@ export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayer
                         </button>
                     </div>
                  </div>
+            </div>
+        )}
+
+        {/* Google Sheets Modal in main view */}
+        {isSheetModalOpen && (
+            <div className="fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="bg-white rounded-xl shadow-2xl w-full max-w-md border border-slate-200 animate-in zoom-in-95 duration-200">
+                    <div className="p-6 border-b border-slate-200">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                <Link2 size={20} className="text-blue-600" />
+                                Link Google Sheet
+                            </h3>
+                            <button 
+                                onClick={() => {
+                                  setIsSheetModalOpen(false);
+                                  setSheetUrl('');
+                                  setSheetError(null);
+                                  setSheetHeaders([]);
+                                  setSelectedLatCol(-1);
+                                  setSelectedLngCol(-1);
+                                }}
+                                className="p-1 hover:bg-slate-100 rounded-lg text-slate-500"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="p-6 space-y-4">
+                        <div>
+                            <label className="block text-sm font-semibold text-slate-700 mb-2">
+                                Google Sheets URL or ID
+                            </label>
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    value={sheetUrl}
+                                    onChange={(e) => {
+                                      setSheetUrl(e.target.value);
+                                      setSheetError(null);
+                                      setSheetHeaders([]);
+                                    }}
+                                    placeholder="https://docs.google.com/spreadsheets/d/..."
+                                    className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-slate-400"
+                                />
+                                <button
+                                    onClick={handleFetchHeaders}
+                                    disabled={isLoadingSheet || !sheetUrl.trim()}
+                                    className="px-4 py-2.5 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-md flex items-center gap-2 whitespace-nowrap"
+                                >
+                                    {isLoadingSheet ? (
+                                        <Loader2 size={16} className="animate-spin" />
+                                    ) : (
+                                        'Fetch Columns'
+                                    )}
+                                </button>
+                            </div>
+                            <p className="text-xs text-slate-500 mt-2">
+                                The sheet must be publicly accessible (Anyone with link can view).
+                            </p>
+                        </div>
+
+                        {sheetHeaders.length > 0 && (
+                            <>
+                                <div>
+                                    <label className="block text-sm font-semibold text-slate-700 mb-2">
+                                        Latitude Column
+                                    </label>
+                                    <select
+                                        value={selectedLatCol}
+                                        onChange={(e) => setSelectedLatCol(Number(e.target.value))}
+                                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                                    >
+                                        <option value={-1}>-- Select Latitude Column --</option>
+                                        {sheetHeaders.map((header, idx) => (
+                                            <option key={idx} value={idx}>{header}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-semibold text-slate-700 mb-2">
+                                        Longitude Column
+                                    </label>
+                                    <select
+                                        value={selectedLngCol}
+                                        onChange={(e) => setSelectedLngCol(Number(e.target.value))}
+                                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                                    >
+                                        <option value={-1}>-- Select Longitude Column --</option>
+                                        {sheetHeaders.map((header, idx) => (
+                                            <option key={idx} value={idx}>{header}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </>
+                        )}
+
+                        {sheetHeaders.length === 0 && (
+                            <div>
+                                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                                    Requirements
+                                </label>
+                                <ul className="text-xs text-slate-600 space-y-1">
+                                    <li>✓ Sheet must contain latitude and longitude columns</li>
+                                    <li>✓ First row should be headers</li>
+                                    <li>✓ Share settings: Anyone with link can view</li>
+                                </ul>
+                            </div>
+                        )}
+
+                        {sheetError && (
+                            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                                {sheetError}
+                            </div>
+                        )}
+
+                        <div className="flex gap-3 pt-2">
+                            <button 
+                                onClick={() => {
+                                  setIsSheetModalOpen(false);
+                                  setSheetUrl('');
+                                  setSheetError(null);
+                                  setSheetHeaders([]);
+                                  setSelectedLatCol(-1);
+                                  setSelectedLngCol(-1);
+                                }}
+                                className="flex-1 py-2.5 border border-slate-200 rounded-lg text-slate-600 font-semibold hover:bg-slate-50 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                onClick={handleLoadGoogleSheet}
+                                disabled={isLoadingSheet || sheetHeaders.length === 0 || selectedLatCol === -1 || selectedLngCol === -1}
+                                className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-md flex items-center justify-center gap-2"
+                            >
+                                {isLoadingSheet ? (
+                                    <>
+                                        <Loader2 size={16} className="animate-spin" />
+                                        Loading...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Link2 size={16} />
+                                        Link Sheet
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
         )}
     </div>

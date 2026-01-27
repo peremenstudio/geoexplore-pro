@@ -10,9 +10,12 @@ export default defineConfig(({ mode }) => {
         host: '0.0.0.0',
       },
       plugins: [react()],
+      cacheDir: './.vite-cache',
       define: {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
+        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+        'process.env.MAPBOX_TOKEN': JSON.stringify(env.MAPBOX_TOKEN),
+        'process.env.MAPBOX_STYLE': JSON.stringify(env.MAPBOX_STYLE)
       },
       resolve: {
         alias: {
