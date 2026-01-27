@@ -8,16 +8,18 @@ import { ExploreView } from './components/ExploreView';
 import { AnalyzeView } from './components/AnalyzeView';
 import { processFile } from './utils/fileProcessor';
 import { fetchNominatimPlaces } from './utils/nominatim';
+import { fetchOverpassData } from './utils/overpass';
 import { fetchDetailedNadlanTransactions } from './utils/nadlanApi';
+import { fetchTelAvivSportsFields } from './utils/telAvivGis';
 import { Layer, AppView } from './types';
-import { Menu, Map as MapIcon, Database, Layers, Compass, BarChart3, Loader2, Box } from 'lucide-react';
+import { Menu, Map as MapIcon, Database, Layers, Compass, BarChart3, Loader2, Box, Download, Globe, Home, Crosshair, Search, Info, Building, Flag, ShoppingCart, ChevronDown, ChevronRight } from 'lucide-react';
 import { Feature, GeoJsonProperties } from 'geojson';
 
 export default function App() {
   const [layers, setLayers] = useState<Layer[]>([]);
   const [activeView, setActiveView] = useState<AppView>('map');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [isLayerPanelOpen, setIsLayerPanelOpen] = useState(true);
+  const [rightPanelMode, setRightPanelMode] = useState<'layer' | 'fetch' | null>('layer');
   const [is3DMode, setIs3DMode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [zoomToLayerId, setZoomToLayerId] = useState<string | null>(null);
@@ -32,6 +34,12 @@ export default function App() {
   const [isPickingFetch, setIsPickingFetch] = useState(false);
   const [fetchLocation, setFetchLocation] = useState<{lat: number, lng: number} | null>(null);
   const [fetchRadius, setFetchRadius] = useState(500);
+  const [fetchName, setFetchName] = useState('');
+  const [fetchQuery, setFetchQuery] = useState('');
+  
+  // New Fetch UI State
+  const [expandedCategory, setExpandedCategory] = useState<'urban' | 'national' | 'commercial' | null>(null);
+  const [selectedCity, setSelectedCity] = useState<string>('');
 
   // Analyze State
   const [analyzedLayerId, setAnalyzedLayerId] = useState<string | null>(null);
@@ -251,9 +259,11 @@ export default function App() {
 
     setIsLoading(true);
     try {
-        const features = await fetchNominatimPlaces(config.query, fetchLocation, config.radius);
+        // Use Overpass API for category/type searches (amenity, shop, etc.)
+        // Overpass is better for searching by category than Nominatim
+        const features = await fetchOverpassData(config.query, fetchLocation, config.radius);
         if (features.length === 0) {
-            alert(`No places found for "${config.query}".`);
+            alert(`No places found for "${config.query}". Try: restaurant, cafe, bank, hospital, park, etc.`);
         } else {
             const newLayer: Layer = {
                 id: `fetched-${Date.now()}`,
@@ -268,7 +278,9 @@ export default function App() {
             };
             setLayers(prev => [...prev, newLayer]);
             setFetchLocation(null);
-            setIsPickingFetch(false); 
+            setIsPickingFetch(false);
+            setFetchName('');
+            setFetchQuery('');
             setZoomToLayerId(newLayer.id);
         }
     } catch (e: any) {
@@ -303,6 +315,48 @@ export default function App() {
         }
     } catch (e: any) {
         alert(e.message);
+    } finally {
+        setIsLoading(false);
+    }
+  };
+
+  const handleFetchTelAvivLayer = async (layerType: string) => {
+    setIsLoading(true);
+    try {
+        let features: Feature[] = [];
+        let layerName = '';
+        let color = '';
+
+        switch(layerType) {
+            case 'sports':
+                features = await fetchTelAvivSportsFields();
+                layerName = 'Tel Aviv - Sports Fields';
+                color = '#10b981'; // Green
+                break;
+            default:
+                throw new Error('Unknown layer type');
+        }
+
+        if (features.length === 0) {
+            alert(`No data found for ${layerName}`);
+        } else {
+            const newLayer: Layer = {
+                id: `tlv-${layerType}-${Date.now()}`,
+                name: layerName,
+                visible: true,
+                data: { type: 'FeatureCollection', features },
+                color: color,
+                opacity: 0.7,
+                type: 'polygon',
+                grid: { show: false, showLabels: false, size: 0.5, opacity: 0.5 },
+                lastUpdated: Date.now()
+            };
+            setLayers(prev => [...prev, newLayer]);
+            setZoomToLayerId(newLayer.id);
+            setRightPanelMode('layer');
+        }
+    } catch (e: any) {
+        alert(`Error: ${e.message}`);
     } finally {
         setIsLoading(false);
     }
@@ -439,18 +493,25 @@ export default function App() {
               {activeView === 'map' && (
                 <>
                   <button 
+                      onClick={() => setRightPanelMode(rightPanelMode === 'layer' ? null : 'layer')}
+                      className={`p-2.5 rounded-lg transition-all ${rightPanelMode === 'layer' ? 'bg-coral-50 text-coral-600 ring-1 ring-coral-200' : 'text-slate-500 hover:bg-slate-100'}`}
+                      title="Layer Management"
+                  >
+                      <Layers size={20} />
+                  </button>
+                  <button 
+                      onClick={() => setRightPanelMode(rightPanelMode === 'fetch' ? null : 'fetch')}
+                      className={`p-2.5 rounded-lg transition-all ${rightPanelMode === 'fetch' ? 'bg-sky-50 text-sky-600 ring-1 ring-sky-200' : 'text-slate-500 hover:bg-slate-100'}`}
+                      title="Fetch Data"
+                  >
+                      <Download size={20} />
+                  </button>
+                  <button 
                       onClick={() => setIs3DMode(!is3DMode)}
                       className={`p-2.5 rounded-lg transition-all ${is3DMode ? 'bg-purple-50 text-purple-600 ring-1 ring-purple-200' : 'text-slate-500 hover:bg-slate-100'}`}
                       title={is3DMode ? 'Switch to 2D' : 'Switch to 3D'}
                   >
                       <Box size={20} />
-                  </button>
-                  <button 
-                      onClick={() => setIsLayerPanelOpen(!isLayerPanelOpen)}
-                      className={`p-2.5 rounded-lg transition-all ${isLayerPanelOpen ? 'bg-coral-50 text-coral-600 ring-1 ring-coral-200' : 'text-slate-500 hover:bg-slate-100'}`}
-                      title="Layer Management"
-                  >
-                      <Layers size={20} />
                   </button>
                 </>
               )}
@@ -520,24 +581,153 @@ export default function App() {
              </div>
           )}
 
-          {activeView === 'map' && (
-            <div className={`absolute top-4 right-4 bottom-4 w-80 bg-white/95 backdrop-blur-md shadow-2xl rounded-2xl border border-white/50 transform transition-transform duration-300 flex flex-col z-[1000] ${isLayerPanelOpen ? 'translate-x-0' : 'translate-x-[120%]'}`}>
-               <LayerManager 
+          {activeView === 'map' && rightPanelMode && (
+            <div className={`absolute top-4 right-4 bottom-4 w-80 bg-white/95 backdrop-blur-md shadow-2xl rounded-2xl border border-white/50 transform transition-transform duration-300 flex flex-col z-[1000] ${rightPanelMode ? 'translate-x-0' : 'translate-x-[120%]'}`}>
+              {rightPanelMode === 'layer' && (
+                <LayerManager 
                   layers={layers}
                   onToggle={toggleLayerVisibility}
                   onDelete={deleteLayer}
                   onStyleChange={updateLayerStyle}
                   onZoom={setZoomToLayerId}
                   onEdit={handleStartEditLayer}
-                  onPickFetchLocation={() => setIsPickingFetch(true)}
-                  isPickingFetch={isPickingFetch}
-                  fetchLocation={fetchLocation}
-                  onExecuteFetch={handleFetchData}
-                  onExecuteNadlanFetch={handleExecuteNadlanFetch}
-                  isFetching={isLoading}
-                  fetchRadius={fetchRadius}
-                  onFetchRadiusChange={setFetchRadius}
-               />
+                />
+              )}
+              {rightPanelMode === 'fetch' && (
+                <div className="flex flex-col h-full">
+                  <div className="p-4 border-b border-slate-100 bg-white/50 backdrop-blur rounded-t-xl">
+                    <h2 className="font-bold text-slate-800 flex items-center gap-2">
+                        <Download size={18} className="text-sky-600" /> 
+                        Fetch Data Sources
+                    </h2>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                    {/* Urban Category */}
+                    <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                      <button
+                        onClick={() => setExpandedCategory(expandedCategory === 'urban' ? null : 'urban')}
+                        className="w-full flex items-center justify-between p-3 hover:bg-slate-50 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+                            <Building size={16} className="text-blue-600" />
+                          </div>
+                          <span className="font-semibold text-slate-800">Urban</span>
+                        </div>
+                        {expandedCategory === 'urban' ? <ChevronDown size={18} className="text-slate-400" /> : <ChevronRight size={18} className="text-slate-400" />}
+                      </button>
+                      
+                      {expandedCategory === 'urban' && (
+                        <div className="p-4 border-t border-slate-100 bg-slate-50 space-y-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-2">Select City</label>
+                            <select
+                              value={selectedCity}
+                              onChange={(e) => setSelectedCity(e.target.value)}
+                              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+                            >
+                              <option value="">Choose a city...</option>
+                              <option value="tel-aviv">Tel Aviv</option>
+                              <option value="jerusalem">Jerusalem</option>
+                              <option value="haifa">Haifa</option>
+                              <option value="beer-sheva">Beer Sheva</option>
+                            </select>
+                          </div>
+
+                          {selectedCity && (
+                            <div className="space-y-2 animate-in slide-in-from-top-2 duration-300">
+                              <p className="text-xs font-semibold text-slate-600 mb-2">Available Layers</p>
+                              
+                              {selectedCity === 'tel-aviv' && (
+                                <>
+                                  <button 
+                                    onClick={() => handleFetchTelAvivLayer('sports')}
+                                    disabled={isLoading}
+                                    className="w-full flex items-center justify-between p-3 bg-white rounded-lg border border-slate-200 hover:border-green-300 hover:bg-green-50 transition-all group disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                                      <span className="text-sm font-medium text-slate-700 group-hover:text-green-700">Sports Fields</span>
+                                    </div>
+                                    {isLoading ? <Loader2 size={14} className="animate-spin text-green-600" /> : <Download size={14} className="text-slate-400 group-hover:text-green-600" />}
+                                  </button>
+
+                                  <button className="w-full flex items-center justify-between p-3 bg-white rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition-all group">
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                                      <span className="text-sm font-medium text-slate-700 group-hover:text-blue-700">Public Transportation</span>
+                                    </div>
+                                    <Download size={14} className="text-slate-400 group-hover:text-blue-600" />
+                                  </button>
+
+                                  <button className="w-full flex items-center justify-between p-3 bg-white rounded-lg border border-slate-200 hover:border-amber-300 hover:bg-amber-50 transition-all group">
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-2 h-2 rounded-full bg-amber-500"></div>
+                                      <span className="text-sm font-medium text-slate-700 group-hover:text-amber-700">Parks & Gardens</span>
+                                    </div>
+                                    <Download size={14} className="text-slate-400 group-hover:text-amber-600" />
+                                  </button>
+                                </>
+                              )}
+
+                              {selectedCity !== 'tel-aviv' && (
+                                <div className="p-4 bg-slate-100 rounded-lg border border-slate-200">
+                                  <p className="text-sm text-slate-500 italic text-center">Layers for this city coming soon</p>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* National Category */}
+                    <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                      <button
+                        onClick={() => setExpandedCategory(expandedCategory === 'national' ? null : 'national')}
+                        className="w-full flex items-center justify-between p-3 hover:bg-slate-50 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center">
+                            <Flag size={16} className="text-green-600" />
+                          </div>
+                          <span className="font-semibold text-slate-800">National</span>
+                        </div>
+                        {expandedCategory === 'national' ? <ChevronDown size={18} className="text-slate-400" /> : <ChevronRight size={18} className="text-slate-400" />}
+                      </button>
+                      
+                      {expandedCategory === 'national' && (
+                        <div className="p-4 border-t border-slate-100 bg-slate-50">
+                          <p className="text-sm text-slate-500 italic">National datasets will be available soon</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Commercial Category */}
+                    <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                      <button
+                        onClick={() => setExpandedCategory(expandedCategory === 'commercial' ? null : 'commercial')}
+                        className="w-full flex items-center justify-between p-3 hover:bg-slate-50 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center">
+                            <ShoppingCart size={16} className="text-amber-600" />
+                          </div>
+                          <span className="font-semibold text-slate-800">Commercial</span>
+                        </div>
+                        {expandedCategory === 'commercial' ? <ChevronDown size={18} className="text-slate-400" /> : <ChevronRight size={18} className="text-slate-400" />}
+                      </button>
+                      
+                      {expandedCategory === 'commercial' && (
+                        <div className="p-4 border-t border-slate-100 bg-slate-50">
+                          <p className="text-sm text-slate-500 italic">Commercial datasets will be available soon</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

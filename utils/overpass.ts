@@ -56,37 +56,35 @@ const formatAddress = (tags: { [key: string]: string }): string => {
   return 'Address not available';
 };
 
-/**
- * Escapes special characters for Overpass QL Regex
- */
-const escapeRegex = (str: string) => {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-};
-
 export const fetchOverpassData = async (query: string, center: { lat: number, lng: number }, radius: number): Promise<Feature[]> => {
-  // 1. Sanitize query
-  // We remove quotes to prevent QL injection and escape special chars for regex
-  let cleanQuery = query.replace(/"/g, '').trim();
-  cleanQuery = escapeRegex(cleanQuery);
+  // 1. Sanitize query - remove quotes and trim
+  let cleanQuery = query.replace(/"/g, '').trim().toLowerCase();
   
   if (!cleanQuery) return [];
 
-  // 2. Construct Overpass QL Query
-  // Optimization:
-  // - Increase timeout to 60s
-  // - Perform the spatial 'around' query ONCE and store in a named set (.searchArea)
-  // - Filter from that set for specific tags. This avoids repeated spatial index lookups.
+  // 2. Handle plural to singular conversion for common searches
+  const singularQuery = cleanQuery.endsWith('s') && !cleanQuery.endsWith('ss') 
+    ? cleanQuery.slice(0, -1) 
+    : cleanQuery;
+
+  // 3. Construct Overpass QL Query
+  // Use simpler tag matching without regex to avoid syntax issues
+  // Try both singular and plural forms if they're different
+  const searchTerms = cleanQuery === singularQuery 
+    ? [cleanQuery]
+    : [cleanQuery, singularQuery];
+
+  const filterExpressions = searchTerms.map(term => 
+    `(nwr["amenity"="${term}"](around:${radius},${center.lat},${center.lng});
+     nwr["tourism"="${term}"](around:${radius},${center.lat},${center.lng});
+     nwr["leisure"="${term}"](around:${radius},${center.lat},${center.lng});
+     nwr["shop"="${term}"](around:${radius},${center.lat},${center.lng});
+     nwr["cuisine"~"${term}"](around:${radius},${center.lat},${center.lng});)`
+  ).join(';');
+
   const queryQL = `
     [out:json][timeout:60];
-    nwr(around:${radius},${center.lat},${center.lng})->.searchArea;
-    (
-      .searchArea["name"~"${cleanQuery}",i];
-      .searchArea["amenity"~"${cleanQuery}",i];
-      .searchArea["cuisine"~"${cleanQuery}",i];
-      .searchArea["shop"~"${cleanQuery}",i];
-      .searchArea["tourism"~"${cleanQuery}",i];
-      .searchArea["leisure"~"${cleanQuery}",i];
-    );
+    ${filterExpressions};
     out center 500;
   `;
 
