@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Layer } from '../types';
 import { Feature } from 'geojson';
-import { BarChart3, Filter, PieChart, Layers, Check, X, MoreHorizontal, LayoutGrid, List, AlignVerticalJustifyEnd, Map as MapIcon, Clock, User } from 'lucide-react';
+import { BarChart3, Filter, PieChart, Layers, Check, X, MoreHorizontal, LayoutGrid, List, AlignVerticalJustifyEnd, Map as MapIcon, Clock, User, Pencil, Square, Circle } from 'lucide-react';
 import { generateWalkingIsochrones } from '../utils/spatialAnalysis';
 
 interface AnalyzeViewProps {

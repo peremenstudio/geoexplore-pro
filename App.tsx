@@ -20,6 +20,7 @@ export default function App() {
   const [layers, setLayers] = useState<Layer[]>([]);
   const [activeView, setActiveView] = useState<AppView>('map');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isLayerPanelOpen, setIsLayerPanelOpen] = useState(false);
   const [rightPanelMode, setRightPanelMode] = useState<'layer' | 'fetch' | null>('layer');
   const [is3DMode, setIs3DMode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -421,6 +422,10 @@ export default function App() {
       } : l));
   };
 
+  const handleAddLayer = (newLayer: Layer) => {
+      setLayers(prev => [...prev, newLayer]);
+  };
+
   const handleAddExploreLayer = (newLayer: Layer) => {
       setLayers(prev => [...prev, newLayer]);
       setActiveView('map');
@@ -551,8 +556,8 @@ export default function App() {
         </div>
 
         <div className="flex-1 relative overflow-hidden bg-slate-50">
-          {/* Map - Always in background */}
-          <div className="absolute inset-0">
+          {/* Map - Resize based on active view */}
+          <div className={`absolute inset-0 ${activeView === 'analyze' ? 'w-1/2' : 'w-full'}`}>
             {is3DMode ? (
               <MapboxMap 
                 layers={displayLayers} 
@@ -560,10 +565,12 @@ export default function App() {
                 zoomToLayerId={zoomToLayerId}
                 onZoomComplete={() => setZoomToLayerId(null)}
                 onUpdateFeature={handleUpdateFeature}
+                onAddLayer={handleAddLayer}
                 isPickingLocation={isPickingLocation || isPickingFetch}
                 onMapClick={handleMapClick}
                 fetchLocation={fetchLocation}
                 fetchRadius={fetchRadius}
+                activeView={activeView}
               />
             ) : (
               <MapArea 
@@ -572,10 +579,12 @@ export default function App() {
                 zoomToLayerId={zoomToLayerId}
                 onZoomComplete={() => setZoomToLayerId(null)}
                 onUpdateFeature={handleUpdateFeature}
+                onAddLayer={handleAddLayer}
                 isPickingLocation={isPickingLocation || isPickingFetch}
                 onMapClick={handleMapClick}
                 fetchLocation={fetchLocation}
                 fetchRadius={fetchRadius}
+                activeView={activeView}
               />
             )}
           </div>

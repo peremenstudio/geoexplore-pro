@@ -10,7 +10,10 @@
   },
   "dependencies": {
     "@google/genai": "latest",
+    "@mapbox/mapbox-gl-draw": "^1.5.1",
     "@mapbox/togeojson": "0.16.2",
+    "@turf/circle": "^7.3.2",
+    "@turf/helpers": "^7.3.2",
     "@turf/turf": "^7.3.2",
     "@types/mapbox-gl": "^3.4.1",
     "geojson": "^0.5.0",

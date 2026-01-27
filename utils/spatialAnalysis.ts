@@ -2,7 +2,7 @@ import { Feature, FeatureCollection, Point } from 'geojson';
 import * as turf from '@turf/turf';
 
 // Mapbox token from your existing config
-const MAPBOX_TOKEN = import.meta.env.MAPBOX_TOKEN || 'pk.eyJ1IjoiYXBlcmVtZW4iLCJhIjoiY2p2M2g3N2Y4MDk2bDRlcDJ2Y3R0dnNocCJ9.oMUpX3SDvmCFGW1o9qkzoQ';
+const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN || 'pk.eyJ1IjoiYXBlcmVtZW4iLCJhIjoiY2p2M2g3N2Y4MDk2bDRlcDJ2Y3R0dnNocCJ9.oMUpX3SDvmCFGW1o9qkzoQ';
 
 /**
  * Generates isochrone polygons based on actual walking network (roads)

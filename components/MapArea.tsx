@@ -13,10 +13,12 @@ interface MapAreaProps {
   zoomToLayerId?: string | null;
   onZoomComplete?: () => void;
   onUpdateFeature?: (layerId: string, featureIndex: number, newProperties: GeoJsonProperties) => void;
+  onAddLayer?: (layer: Layer) => void;
   isPickingLocation?: boolean;
   onMapClick?: (lat: number, lng: number) => void;
   fetchLocation?: { lat: number, lng: number } | null;
   fetchRadius?: number;
+  activeView?: string;
 }
 
 // Helper to fix icon issues in Leaflet with Webpack/Vite
@@ -616,11 +618,14 @@ export const MapArea: React.FC<MapAreaProps> = ({
     zoomToLayerId, 
     onZoomComplete, 
     onUpdateFeature,
+    onAddLayer,
     isPickingLocation, 
     onMapClick,
     fetchLocation,
-    fetchRadius
+    fetchRadius,
+    activeView
 }) => {
+  
   // Combine real layers with a temporary virtual layer for draft features
   const allLayers = useMemo(() => {
       if (!draftFeatures || draftFeatures.length === 0) return layers;

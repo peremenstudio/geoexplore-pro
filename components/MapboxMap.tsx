@@ -1,8 +1,11 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import mapboxgl, { GeoJSONSource } from 'mapbox-gl';
+import MapboxDraw from '@mapbox/mapbox-gl-draw';
+import * as turf from '@turf/turf';
 import type { Layer as LayerType } from '../types';
 import { Feature } from 'geojson';
 import 'mapbox-gl/dist/mapbox-gl.css';
+import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
 
 interface MapboxMapProps {
   layers: LayerType[];
@@ -10,10 +13,12 @@ interface MapboxMapProps {
   zoomToLayerId?: string | null;
   onZoomComplete?: () => void;
   onUpdateFeature?: (layerId: string, featureIndex: number, newProperties: any) => void;
+  onAddLayer?: (layer: LayerType) => void;
   isPickingLocation?: boolean;
   onMapClick?: (lat: number, lng: number) => void;
   fetchLocation?: { lat: number, lng: number } | null;
   fetchRadius?: number;
+  activeView?: string;
 }
 
 const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN || 'pk.eyJ1IjoiYXBlcmVtZW4iLCJhIjoiY2p2M2g3N2Y4MDk2bDRlcDJ2Y3R0dnNocCJ9.oMUpX3SDvmCFGW1o9qkzoQ';
@@ -26,13 +31,16 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   draftFeatures = [],
   zoomToLayerId,
   onZoomComplete,
+  onAddLayer,
   isPickingLocation,
   onMapClick,
   fetchLocation,
-  fetchRadius = 500
+  fetchRadius = 500,
+  activeView = 'map'
 }) => {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
+  const draw = useRef<MapboxDraw | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
 
   // Initialize map
@@ -49,6 +57,18 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     });
 
     map.current.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
+
+    // Initialize MapboxDraw
+    draw.current = new MapboxDraw({
+      displayControlsDefault: false,
+      controls: {
+        polygon: true,
+        trash: true,
+        combine_features: false,
+        uncombine_features: false
+      }
+    });
+    map.current.addControl(draw.current, 'top-left');
 
     map.current.on('load', () => {
       setMapLoaded(true);
@@ -75,6 +95,9 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
 
     return () => {
       if (map.current) {
+        if (draw.current) {
+          map.current.removeControl(draw.current);
+        }
         map.current.remove();
         map.current = null;
       }
@@ -86,6 +109,58 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     if (!map.current) return;
     map.current.getCanvas().style.cursor = isPickingLocation ? 'crosshair' : '';
   }, [isPickingLocation]);
+
+  // Handle draw events
+  useEffect(() => {
+    if (!map.current || !mapLoaded || !draw.current) return;
+
+    const handleDrawUpdate = () => {
+      const data = draw.current!.getAll();
+      
+      if (data.features.length > 0) {
+        data.features.forEach((feature: Feature, index: number) => {
+          if (feature.geometry.type === 'Polygon') {
+            const area = turf.area(feature);
+            const roundedArea = Math.round(area * 100) / 100;
+            
+            const newLayer: LayerType = {
+              id: `drawn-shape-${Date.now()}-${index}`,
+              name: `Drawn Shape - ${roundedArea.toLocaleString()} m²`,
+              visible: true,
+              data: {
+                type: 'FeatureCollection',
+                features: [feature]
+              },
+              color: '#ef4444',
+              opacity: 0.7,
+              type: 'polygon',
+              grid: { show: false, showLabels: false, size: 1, opacity: 0.5 },
+              lastUpdated: Date.now()
+            };
+            
+            onAddLayer?.(newLayer);
+          }
+        });
+        
+        // Clear the draw canvas after a short delay
+        setTimeout(() => {
+          if (draw.current) {
+            draw.current.deleteAll();
+          }
+        }, 100);
+      }
+    };
+
+    map.current.on('draw.create', handleDrawUpdate);
+    map.current.on('draw.update', handleDrawUpdate);
+
+    return () => {
+      if (map.current) {
+        map.current.off('draw.create', handleDrawUpdate);
+        map.current.off('draw.update', handleDrawUpdate);
+      }
+    };
+  }, [mapLoaded, onAddLayer]);
 
   // Handle zoom to layer
   useEffect(() => {
@@ -289,5 +364,26 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
     }
   }, [fetchLocation, fetchRadius, mapLoaded]);
 
-  return <div ref={mapContainer} style={{ width: '100%', height: '100%' }} />;
+  return (
+    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+      <div ref={mapContainer} style={{ width: '100%', height: '100%' }} />
+      {mapLoaded && (
+        <div style={{
+          position: 'absolute',
+          bottom: '40px',
+          left: '10px',
+          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+          padding: '15px',
+          borderRadius: '8px',
+          fontSize: '13px',
+          fontFamily: "'Open Sans', sans-serif",
+          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+          zIndex: 100
+        }}>
+          <p style={{ margin: '0 0 5px 0', fontWeight: 'bold' }}>Draw Shapes</p>
+          <p style={{ margin: '0', color: '#666' }}>Polygon tool active</p>
+        </div>
+      )}
+    </div>
+  );
 };
