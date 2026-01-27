@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import mapboxgl from 'mapbox-gl';
+import mapboxgl, { GeoJSONSource } from 'mapbox-gl';
 import type { Layer as LayerType } from '../types';
 import { Feature } from 'geojson';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -114,82 +114,91 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
 
   // Render layers
   useEffect(() => {
-    if (!map.current || !mapLoaded) return;
+    const mapInstance = map.current;
+    if (!mapInstance || !mapLoaded) return;
 
-    // Remove old layers
     layers.forEach(layer => {
-      ['points', 'lines', 'polygons', 'polygon-outline'].forEach(suffix => {
-        const layerId = `${layer.id}-${suffix}`;
-        if (map.current?.getLayer(layerId)) {
-          map.current.removeLayer(layerId);
-        }
-      });
-      if (map.current?.getSource(layer.id)) {
-        map.current.removeSource(layer.id);
-      }
-    });
+      const source = mapInstance.getSource(layer.id) as GeoJSONSource | undefined;
 
-    // Add current layers
-    layers.filter(l => l.visible).forEach(layer => {
-      if (!map.current) return;
-
-      // Add source
-      if (!map.current.getSource(layer.id)) {
-        map.current.addSource(layer.id, {
+      if (source) {
+        source.setData(layer.data as any);
+      } else {
+        mapInstance.addSource(layer.id, {
           type: 'geojson',
           data: layer.data
         });
       }
 
-      // Add layers
-      map.current.addLayer({
-        id: `${layer.id}-polygons`,
-        type: 'fill',
-        source: layer.id,
-        filter: ['==', '$type', 'Polygon'],
-        paint: {
-          'fill-color': layer.color,
-          'fill-opacity': (layer.opacity || 0.7) * 0.5
-        }
-      });
+      const visibility = layer.visible ? 'visible' : 'none';
 
-      map.current.addLayer({
-        id: `${layer.id}-polygon-outline`,
-        type: 'line',
-        source: layer.id,
-        filter: ['==', '$type', 'Polygon'],
-        paint: {
-          'line-color': layer.color,
-          'line-width': 2,
-          'line-opacity': layer.opacity || 0.7
-        }
-      });
+      // Polygons fill
+      if (!mapInstance.getLayer(`${layer.id}-polygons`)) {
+        mapInstance.addLayer({
+          id: `${layer.id}-polygons`,
+          type: 'fill',
+          source: layer.id,
+          filter: ['==', '$type', 'Polygon'],
+          paint: {
+            'fill-color': layer.color,
+            'fill-opacity': (layer.opacity || 0.7) * 0.5
+          }
+        });
+      }
+      mapInstance.setLayoutProperty(`${layer.id}-polygons`, 'visibility', visibility);
 
-      map.current.addLayer({
-        id: `${layer.id}-lines`,
-        type: 'line',
-        source: layer.id,
-        filter: ['==', '$type', 'LineString'],
-        paint: {
-          'line-color': layer.color,
-          'line-width': 3,
-          'line-opacity': layer.opacity || 0.7
-        }
-      });
+      // Polygon outline
+      if (!mapInstance.getLayer(`${layer.id}-polygon-outline`)) {
+        mapInstance.addLayer({
+          id: `${layer.id}-polygon-outline`,
+          type: 'line',
+          source: layer.id,
+          filter: ['==', '$type', 'Polygon'],
+          paint: {
+            'line-color': layer.color,
+            'line-width': 2,
+            'line-opacity': layer.opacity || 0.7
+          }
+        });
+      }
+      mapInstance.setLayoutProperty(`${layer.id}-polygon-outline`, 'visibility', visibility);
 
-      map.current.addLayer({
-        id: `${layer.id}-points`,
-        type: 'circle',
-        source: layer.id,
-        filter: ['==', '$type', 'Point'],
-        paint: {
-          'circle-radius': 8,
-          'circle-color': layer.color,
-          'circle-opacity': layer.opacity || 0.7,
-          'circle-stroke-width': 2,
-          'circle-stroke-color': '#ffffff'
-        }
-      });
+      // Lines
+      if (!mapInstance.getLayer(`${layer.id}-lines`)) {
+        mapInstance.addLayer({
+          id: `${layer.id}-lines`,
+          type: 'line',
+          source: layer.id,
+          filter: ['==', '$type', 'LineString'],
+          paint: {
+            'line-color': layer.color,
+            'line-width': 3,
+            'line-opacity': layer.opacity || 0.7,
+            'line-blur': 0.5
+          }
+        });
+      }
+      mapInstance.setLayoutProperty(`${layer.id}-lines`, 'visibility', visibility);
+
+      // Points (tuned for 3D/terrain)
+      if (!mapInstance.getLayer(`${layer.id}-points`)) {
+        mapInstance.addLayer({
+          id: `${layer.id}-points`,
+          type: 'circle',
+          source: layer.id,
+          filter: ['==', '$type', 'Point'],
+          paint: {
+            'circle-radius': 8,
+            'circle-color': layer.color,
+            'circle-opacity': layer.opacity || 0.7,
+            'circle-stroke-width': 2,
+            'circle-stroke-color': '#ffffff',
+            // Keep markers glued to terrain when pitched/3D
+            'circle-pitch-alignment': 'map',
+            'circle-pitch-scale': 'map'
+          }
+        });
+      }
+      mapInstance.setLayoutProperty(`${layer.id}-points`, 'visibility', visibility);
     });
   }, [layers, mapLoaded]);
 
