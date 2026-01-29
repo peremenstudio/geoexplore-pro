@@ -15,14 +15,15 @@ interface MapAreaProps {
   onUpdateFeature?: (layerId: string, featureIndex: number, newProperties: GeoJsonProperties) => void;
   onAddLayer?: (layer: Layer) => void;
   isPickingLocation?: boolean;
-  onMapClick?: (lat: number, lng: number) => void;
+  isPickingGooglePlaces?: boolean;
+  onMapClick?: (lat: number, lng: number) => void; 
   fetchLocation?: { lat: number, lng: number } | null;
   fetchRadius?: number;
+  googlePlacesLocation?: { lat: number, lng: number } | null;
+  googlePlacesRadius?: number;
   activeView?: string;
 }
 
-// Helper to fix icon issues in Leaflet with Webpack/Vite
-delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
   iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
@@ -39,22 +40,24 @@ const labelAnchorIcon = L.divIcon({
 
 // --- Map Events Component ---
 const MapEvents: React.FC<{ 
-  isPickingLocation?: boolean; 
+  isPickingLocation?: boolean;
+  isPickingGooglePlaces?: boolean; 
   onMapClick?: (lat: number, lng: number) => void; 
-}> = ({ isPickingLocation, onMapClick }) => {
+}> = ({ isPickingLocation, isPickingGooglePlaces, onMapClick }) => {
   const map = useMap();
+  const isPickingAny = isPickingLocation || isPickingGooglePlaces;
 
   useEffect(() => {
-    if (isPickingLocation) {
+    if (isPickingAny) {
       map.getContainer().style.cursor = 'crosshair';
     } else {
       map.getContainer().style.cursor = '';
     }
-  }, [isPickingLocation, map]);
+  }, [isPickingAny, map]);
 
   useMapEvents({
     click(e) {
-      if (isPickingLocation && onMapClick) {
+      if (isPickingAny && onMapClick) {
         onMapClick(e.latlng.lat, e.latlng.lng);
       }
     },
@@ -623,10 +626,13 @@ export const MapArea: React.FC<MapAreaProps> = ({
     onZoomComplete, 
     onUpdateFeature,
     onAddLayer,
-    isPickingLocation, 
+    isPickingLocation,
+    isPickingGooglePlaces, 
     onMapClick,
     fetchLocation,
     fetchRadius,
+    googlePlacesLocation,
+    googlePlacesRadius,
     activeView
 }) => {
   
@@ -661,7 +667,7 @@ export const MapArea: React.FC<MapAreaProps> = ({
         zoomControl={false}
         preferCanvas={false} // Disable canvas to ensure DOM classes/animations work on SVG paths
       >
-        <MapEvents isPickingLocation={isPickingLocation} onMapClick={onMapClick} />
+        <MapEvents isPickingLocation={isPickingLocation} isPickingGooglePlaces={isPickingGooglePlaces} onMapClick={onMapClick} />
         
         <TileLayer
             attribution='&copy; <a href="https://www.mapbox.com/">Mapbox</a>'
@@ -687,6 +693,15 @@ export const MapArea: React.FC<MapAreaProps> = ({
             center={[fetchLocation.lat, fetchLocation.lng]}
             radius={fetchRadius}
             pathOptions={{ color: '#94a3b8', fillColor: '#94a3b8', fillOpacity: 0.2, weight: 1, dashArray: '4 4' }}
+          />
+        )}
+
+        {/* Visual Radius Circle for Google Places Mode */}
+        {googlePlacesLocation && googlePlacesRadius && (
+          <Circle 
+            center={[googlePlacesLocation.lat, googlePlacesLocation.lng]}
+            radius={googlePlacesRadius}
+            pathOptions={{ color: '#f59e0b', fillColor: '#f59e0b', fillOpacity: 0.2, weight: 2 }}
           />
         )}
 

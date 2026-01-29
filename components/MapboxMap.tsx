@@ -16,9 +16,12 @@ interface MapboxMapProps {
   onUpdateFeature?: (layerId: string, featureIndex: number, newProperties: any) => void;
   onAddLayer?: (layer: LayerType) => void;
   isPickingLocation?: boolean;
+  isPickingGooglePlaces?: boolean;
   onMapClick?: (lat: number, lng: number) => void;
   fetchLocation?: { lat: number, lng: number } | null;
   fetchRadius?: number;
+  googlePlacesLocation?: { lat: number, lng: number } | null;
+  googlePlacesRadius?: number;
   activeView?: string;
 }
 
@@ -34,9 +37,12 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   onZoomComplete,
   onAddLayer,
   isPickingLocation,
+  isPickingGooglePlaces,
   onMapClick,
   fetchLocation,
   fetchRadius = 500,
+  googlePlacesLocation,
+  googlePlacesRadius = 1000,
   activeView = 'map'
 }) => {
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -89,7 +95,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
 
     // Handle map clicks
     map.current.on('click', (e) => {
-      if (isPickingLocation && onMapClick) {
+      if ((isPickingLocation || isPickingGooglePlaces) && onMapClick) {
         onMapClick(e.lngLat.lat, e.lngLat.lng);
       }
     });
@@ -108,8 +114,8 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   // Update cursor
   useEffect(() => {
     if (!map.current) return;
-    map.current.getCanvas().style.cursor = isPickingLocation ? 'crosshair' : '';
-  }, [isPickingLocation]);
+    map.current.getCanvas().style.cursor = (isPickingLocation || isPickingGooglePlaces) ? 'crosshair' : '';
+  }, [isPickingLocation, isPickingGooglePlaces]);
 
   // Handle draw events
   useEffect(() => {
@@ -363,7 +369,50 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
         }
       });
     }
-  }, [fetchLocation, fetchRadius, mapLoaded]);
+
+    // Google Places location circle
+    if (map.current.getSource('google-places-location')) {
+      map.current.removeSource('google-places-location');
+    }
+
+    if (googlePlacesLocation) {
+      map.current.addSource('google-places-location', {
+        type: 'geojson',
+        data: {
+          type: 'Feature',
+          geometry: {
+            type: 'Point',
+            coordinates: [googlePlacesLocation.lng, googlePlacesLocation.lat]
+          },
+          properties: {}
+        }
+      });
+
+      map.current.addLayer({
+        id: 'google-places-circle',
+        type: 'circle',
+        source: 'google-places-location',
+        paint: {
+          'circle-radius': googlePlacesRadius / 10,
+          'circle-color': '#f59e0b',
+          'circle-opacity': 0.2,
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#f59e0b'
+        }
+      });
+
+      map.current.addLayer({
+        id: 'google-places-center',
+        type: 'circle',
+        source: 'google-places-location',
+        paint: {
+          'circle-radius': 6,
+          'circle-color': '#f59e0b',
+          'circle-opacity': 1
+        }
+      });
+    }
+  }, [fetchLocation, fetchRadius, googlePlacesLocation, googlePlacesRadius, mapLoaded]);
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>

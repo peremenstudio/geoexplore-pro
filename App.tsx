@@ -15,6 +15,7 @@ import { matchQueryToGISLayer } from './utils/aiAgent';
 import { fetchJerusalemLayers, fetchJerusalemLayerData } from './utils/jerusalemGis';
 import { fetchHaifaLayers, fetchHaifaLayerData } from './utils/haifaGis';
 import { getNextLayerColor } from './utils/layerColors';
+import { fetchNearbyPlaces, placesToGeoJSON, getDailyUsageStats, getCategoryDisplay, DailyUsageStats } from './utils/googlePlaces';
 import { Layer, AppView } from './types';
 import { Menu, Map as MapIcon, Database, Layers, Compass, BarChart3, Loader2, Box, Download, Globe, Home, Crosshair, Search, Info, Building, Flag, ShoppingCart, ChevronDown, ChevronRight } from 'lucide-react';
 import { Feature, GeoJsonProperties } from 'geojson';
@@ -57,6 +58,14 @@ export default function App() {
   const [haifaSuggestions, setHaifaSuggestions] = useState<GISLayerInfo[]>([]);
   const [showAllHaifaLayers, setShowAllHaifaLayers] = useState(false);
   const [selectedCity, setSelectedCity] = useState<string>('');
+  
+  // Google Places State
+  const [googlePlacesCategory, setGooglePlacesCategory] = useState('restaurant');
+  const [googlePlacesLayerName, setGooglePlacesLayerName] = useState('Google Places Search');
+  const [googlePlacesRadius, setGooglePlacesRadius] = useState(1000);
+  const [googlePlacesUsage, setGooglePlacesUsage] = useState<DailyUsageStats | null>(null);
+  const [isPickingGooglePlaces, setIsPickingGooglePlaces] = useState(false);
+  const [googlePlacesLocation, setGooglePlacesLocation] = useState<{lat: number, lng: number} | null>(null);
 
   // Analyze State
   const [analyzedLayerId, setAnalyzedLayerId] = useState<string | null>(null);
@@ -116,6 +125,12 @@ export default function App() {
       }
     };
     loadHaifaLayers();
+  }, []);
+
+  useEffect(() => {
+    // Update Google Places usage stats
+    const stats = getDailyUsageStats();
+    setGooglePlacesUsage(stats);
   }, []);
 
   useEffect(() => {
@@ -264,6 +279,12 @@ export default function App() {
     if (isPickingFetch) {
         setFetchLocation({ lat, lng });
         setIsPickingFetch(false);
+        return;
+    }
+
+    if (isPickingGooglePlaces) {
+        setGooglePlacesLocation({ lat, lng });
+        setIsPickingGooglePlaces(false);
         return;
     }
 
@@ -518,6 +539,55 @@ export default function App() {
     }
   };
 
+  const handleStartGooglePlacesSearch = () => {
+    setIsPickingGooglePlaces(true);
+    setActiveView('map');
+    if (window.innerWidth < 1024) {
+      setIsSidebarOpen(false);
+    }
+  };
+
+  const handleGooglePlacesSearch = async () => {
+    if (!googlePlacesLocation) return;
+    
+    setIsLoading(true);
+    
+    try {
+      const places = await fetchNearbyPlaces({
+        lat: googlePlacesLocation.lat,
+        lng: googlePlacesLocation.lng,
+        radius: googlePlacesRadius,
+        type: googlePlacesCategory
+      });
+
+      if (places.length === 0) {
+        alert(`No ${googlePlacesCategory} found within ${googlePlacesRadius}m`);
+        return;
+      }
+
+      const features = placesToGeoJSON(places);
+      const newLayer: Layer = {
+        id: `places-${Date.now()}`,
+        name: googlePlacesLayerName || `${getCategoryDisplay(googlePlacesCategory)} (${places.length})`,
+        visible: true,
+        data: { type: 'FeatureCollection', features },
+        color: getNextLayerColor(),
+        opacity: 0.7,
+        type: 'point',
+        grid: { show: false, showLabels: false, size: 0.5, opacity: 0.5 },
+        lastUpdated: Date.now()
+      };
+      setLayers(prev => [...prev, newLayer]);
+      setZoomToLayerId(newLayer.id);
+      setGooglePlacesUsage(getDailyUsageStats());
+      setGooglePlacesLocation(null);
+    } catch (e: any) {
+      alert(`Error: ${e.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleFetchTelAvivLayer = async (layerType: string) => {
     setIsLoading(true);
     try {
@@ -740,9 +810,12 @@ export default function App() {
                 onUpdateFeature={handleUpdateFeature}
                 onAddLayer={handleAddLayer}
                 isPickingLocation={isPickingLocation || isPickingFetch}
+                isPickingGooglePlaces={isPickingGooglePlaces}
                 onMapClick={handleMapClick}
                 fetchLocation={fetchLocation}
                 fetchRadius={fetchRadius}
+                googlePlacesLocation={googlePlacesLocation}
+                googlePlacesRadius={googlePlacesRadius}
                 activeView={activeView}
               />
             ) : (
@@ -754,9 +827,12 @@ export default function App() {
                 onUpdateFeature={handleUpdateFeature}
                 onAddLayer={handleAddLayer}
                 isPickingLocation={isPickingLocation || isPickingFetch}
+                isPickingGooglePlaces={isPickingGooglePlaces}
                 onMapClick={handleMapClick}
                 fetchLocation={fetchLocation}
                 fetchRadius={fetchRadius}
+                googlePlacesLocation={googlePlacesLocation}
+                googlePlacesRadius={googlePlacesRadius}
                 activeView={activeView}
               />
             )}
@@ -1166,8 +1242,142 @@ export default function App() {
                       </button>
                       
                       {expandedCategory === 'commercial' && (
-                        <div className="p-4 border-t border-slate-100 bg-slate-50">
-                          <p className="text-sm text-slate-500 italic">Commercial datasets will be available soon</p>
+                        <div className="p-4 border-t border-slate-100 bg-slate-50 space-y-4">
+                          <div>
+                            <h3 className="text-sm font-bold text-slate-700 mb-3">Google Maps Places</h3>
+                            
+                            {/* Google Places Usage Bar */}
+                            {googlePlacesUsage && (
+                              <div className="mb-4 p-3 bg-white rounded-lg border border-slate-200">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-xs font-semibold text-slate-600">Daily Usage</span>
+                                  <span className="text-xs text-slate-500">{googlePlacesUsage.requestsToday} / {googlePlacesUsage.requestsLimit.toLocaleString()}</span>
+                                </div>
+                                <div className="w-full bg-slate-200 rounded-full h-2">
+                                  <div 
+                                    className="bg-amber-500 h-2 rounded-full transition-all"
+                                    style={{ width: `${googlePlacesUsage.percentageUsed}%` }}
+                                  />
+                                </div>
+                                <p className="text-xs text-slate-500 mt-2">Remaining: {googlePlacesUsage.estimatedRemaining.toLocaleString()} requests</p>
+                              </div>
+                            )}
+
+                            {/* Settings */}
+                            <div className="space-y-3">
+                              <div>
+                                <label className="block text-xs font-semibold text-slate-600 mb-1">Layer Name</label>
+                                <input
+                                  type="text"
+                                  value={googlePlacesLayerName}
+                                  onChange={(e) => setGooglePlacesLayerName(e.target.value)}
+                                  placeholder="e.g., Restaurants in Tel Aviv"
+                                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-xs font-semibold text-slate-600 mb-1">Category</label>
+                                <select
+                                  value={googlePlacesCategory}
+                                  onChange={(e) => setGooglePlacesCategory(e.target.value)}
+                                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none bg-white"
+                                >
+                                  <option value="restaurant">🍽️ Restaurant</option>
+                                  <option value="cafe">☕ Café</option>
+                                  <option value="bar">🍺 Bar</option>
+                                  <option value="hotel">🏨 Hotel</option>
+                                  <option value="shop">🛍️ Shop</option>
+                                  <option value="supermarket">🛒 Supermarket</option>
+                                  <option value="pharmacy">💊 Pharmacy</option>
+                                  <option value="hospital">🏥 Hospital</option>
+                                  <option value="park">🌳 Park</option>
+                                  <option value="museum">🏛️ Museum</option>
+                                  <option value="library">📚 Library</option>
+                                  <option value="school">🎓 School</option>
+                                  <option value="bank">🏦 Bank</option>
+                                  <option value="atm">💰 ATM</option>
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="block text-xs font-semibold text-slate-600 mb-2">Search Radius</label>
+                                <div className="space-y-2">
+                                  {[500, 1000, 2000, 5000, 10000].map(radius => (
+                                    <label key={radius} className="flex items-center gap-2 cursor-pointer">
+                                      <input
+                                        type="radio"
+                                        name="radius"
+                                        value={radius}
+                                        checked={googlePlacesRadius === radius}
+                                        onChange={(e) => setGooglePlacesRadius(parseInt(e.target.value))}
+                                        className="w-4 h-4 accent-amber-600"
+                                      />
+                                      <span className="text-sm text-slate-700">{(radius / 1000).toFixed(1)} km ({radius}m)</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+
+                              <button
+                                onClick={handleStartGooglePlacesSearch}
+                                disabled={isLoading || isPickingGooglePlaces || !!googlePlacesLocation}
+                                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                              >
+                                {isPickingGooglePlaces ? (
+                                  <>
+                                    <Loader2 size={16} className="animate-spin" />
+                                    Click on map
+                                  </>
+                                ) : googlePlacesLocation ? (
+                                  <>
+                                    ✓ Location picked
+                                  </>
+                                ) : (
+                                  <>
+                                    <Crosshair size={16} />
+                                    Pick a Place
+                                  </>
+                                )}
+                              </button>
+
+                              {googlePlacesLocation && (
+                                <div className="p-2 bg-blue-50 rounded-lg border border-blue-200 text-xs">
+                                  <p className="text-slate-600">📍 <span className="font-semibold">{googlePlacesLocation.lat.toFixed(4)}, {googlePlacesLocation.lng.toFixed(4)}</span></p>
+                                </div>
+                              )}
+
+                              {googlePlacesLocation && (
+                                <button
+                                  onClick={handleGooglePlacesSearch}
+                                  disabled={isLoading}
+                                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                >
+                                  {isLoading ? (
+                                    <>
+                                      <Loader2 size={16} className="animate-spin" />
+                                      Fetching...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Download size={16} />
+                                      Fetch
+                                    </>
+                                  )}
+                                </button>
+                              )}
+
+                              {googlePlacesLocation && (
+                                <button
+                                  onClick={() => setGooglePlacesLocation(null)}
+                                  disabled={isLoading}
+                                  className="w-full px-4 py-2 bg-slate-200 text-slate-700 rounded-lg font-semibold hover:bg-slate-300 disabled:opacity-50 transition-all text-sm"
+                                >
+                                  Cancel
+                                </button>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       )}
                     </div>
