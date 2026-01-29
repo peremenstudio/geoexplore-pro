@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Layer } from '../types';
-import { Search, ChevronLeft, ChevronRight, FileText, Download, Merge, AlertTriangle, X, Upload, Loader2, Link2 } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, FileText, Download, Merge, AlertTriangle, X, Upload, Loader2, Link2, Edit } from 'lucide-react';
 import { fetchGoogleSheetGeoJSON, fetchSheetHeaders, isValidSheetUrl } from '../utils/googleSheets';
 import { getNextLayerColor } from '../utils/layerColors';
 
@@ -10,13 +10,16 @@ interface DataExplorerProps {
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>, name: string) => void;
   isLoading: boolean;
   onAddLayer?: (layer: Layer) => void;
+  onUpdateFeature?: (layerId: string, featureIndex: number, newProperties: any) => void;
 }
 
-export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayers, onFileUpload, isLoading, onAddLayer }) => {
+export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayers, onFileUpload, isLoading, onAddLayer, onUpdateFeature }) => {
   const [selectedLayerId, setSelectedLayerId] = useState<string>(layers.length > 0 ? layers[0].id : '');
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editedData, setEditedData] = useState<Record<number, any>>({});
 
   // Merge State
   const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
@@ -55,7 +58,8 @@ export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayer
       const headers = Array.from(allKeys);
 
       const rows = features.map((f, index) => {
-          const row: any = { id: index, ...f.properties };
+          const row: any = { ...f.properties };
+          row.id = index;  // Always use feature index as row.id (must come after spread to not be overwritten)
           row.geometry_type = f.geometry.type;
           
           if (f.geometry.type === 'Point') {
@@ -86,12 +90,127 @@ export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayer
       setCurrentPage(1);
   }, [selectedLayerId, searchTerm]);
 
+  // Reset edit mode when changing layers
+  React.useEffect(() => {
+      setIsEditMode(false);
+      setEditedData({});
+  }, [selectedLayerId]);
+
   // Sync selected layer if it gets deleted
   React.useEffect(() => {
       if (!layers.find(l => l.id === selectedLayerId) && layers.length > 0) {
           setSelectedLayerId(layers[0].id);
       }
   }, [layers, selectedLayerId]);
+
+  // Detect column type for smart input rendering
+  const getColumnType = (header: string, values: any[]) => {
+    if (header.toLowerCase() === 'priority') {
+      return { type: 'priority', options: ['None', 'Urgent', 'Normal', 'Low'] };
+    }
+    
+    // Check if it's a date column
+    if (header.toLowerCase().includes('date') || header.toLowerCase().includes('time')) {
+      return { type: 'date' };
+    }
+    
+    // Check for columns with limited unique values
+    // Must have at least 3 occurrences of at least one value, and up to 6 unique values total
+    const nonEmptyValues = values.filter(v => v !== undefined && v !== null && v !== '');
+    const valueCounts = new Map<string, number>();
+    
+    nonEmptyValues.forEach(v => {
+      const key = String(v);
+      valueCounts.set(key, (valueCounts.get(key) || 0) + 1);
+    });
+    
+    // Check if any value appears at least 3 times
+    const hasFrequentValue = Array.from(valueCounts.values()).some(count => count >= 3);
+    const uniqueValues = Array.from(valueCounts.keys());
+    
+    if (hasFrequentValue && uniqueValues.length > 0 && uniqueValues.length <= 6) {
+      return { type: 'select', options: [...uniqueValues, 'Other'] };
+    }
+    
+    return { type: 'text' };
+  };
+
+  const handleCellChange = (rowId: number, header: string, value: any) => {
+    setEditedData(prev => ({
+      ...prev,
+      [rowId]: {
+        ...prev[rowId],
+        [header]: value
+      }
+    }));
+  };
+
+  const getCellValue = (row: any, header: string) => {
+    if (editedData[row.id]?.[header] !== undefined) {
+      return editedData[row.id][header];
+    }
+    return row[header];
+  };
+
+  const renderEditableCell = (row: any, header: string) => {
+    const value = getCellValue(row, header);
+    const allColumnValues = tableData.rows.map(r => r[header]);
+    const columnInfo = getColumnType(header, allColumnValues);
+    
+    // Don't allow editing geometry columns
+    if (header === 'geometry_type' || header === 'coordinates') {
+      return <span className="text-slate-400">{value !== undefined && value !== null ? String(value) : '-'}</span>;
+    }
+
+    if (columnInfo.type === 'priority') {
+      return (
+        <select
+          value={value || 'None'}
+          onChange={(e) => handleCellChange(row.id, header, e.target.value)}
+          className="w-full px-2 py-1 border border-slate-300 rounded text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none"
+        >
+          {columnInfo.options?.map(opt => (
+            <option key={opt} value={opt}>{opt}</option>
+          ))}
+        </select>
+      );
+    }
+
+    if (columnInfo.type === 'date') {
+      return (
+        <input
+          type="date"
+          value={value || ''}
+          onChange={(e) => handleCellChange(row.id, header, e.target.value)}
+          className="w-full px-2 py-1 border border-slate-300 rounded text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none"
+        />
+      );
+    }
+
+    if (columnInfo.type === 'select') {
+      return (
+        <select
+          value={value || ''}
+          onChange={(e) => handleCellChange(row.id, header, e.target.value)}
+          className="w-full px-2 py-1 border border-slate-300 rounded text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none"
+        >
+          <option value="">-</option>
+          {columnInfo.options?.map(opt => (
+            <option key={opt} value={opt}>{opt}</option>
+          ))}
+        </select>
+      );
+    }
+
+    return (
+      <input
+        type="text"
+        value={value !== undefined && value !== null ? String(value) : ''}
+        onChange={(e) => handleCellChange(row.id, header, e.target.value)}
+        className="w-full px-2 py-1 border border-slate-300 rounded text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none"
+      />
+    );
+  };
 
   const handleExportCSV = () => {
     if (!selectedLayer) return;
@@ -592,16 +711,6 @@ export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayer
                     </div>
 
                     <button 
-                        onClick={handleExportCSV}
-                        disabled={!selectedLayer}
-                        className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
-                        title="Export to CSV"
-                    >
-                        <Download size={16} />
-                        <span className="hidden sm:inline">Export CSV</span>
-                    </button>
-
-                    <button 
                         onClick={() => {
                           setIsSheetModalOpen(true);
                           setSheetError(null);
@@ -611,6 +720,43 @@ export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayer
                     >
                         <Link2 size={16} />
                         <span className="hidden sm:inline">Link Sheet</span>
+                    </button>
+
+                    <button 
+                        onClick={() => {
+                          if (isEditMode) {
+                            // Save changes
+                            console.log('Save clicked. EditedData:', editedData);
+                            console.log('Selected Layer:', selectedLayer?.id);
+                            console.log('onUpdateFeature exists?', !!onUpdateFeature);
+                            
+                            if (selectedLayer && onUpdateFeature) {
+                              Object.entries(editedData).forEach(([rowId, properties]) => {
+                                const featureIndex = parseInt(rowId);
+                                console.log(`Calling onUpdateFeature for feature ${featureIndex} with:`, properties);
+                                onUpdateFeature(selectedLayer.id, featureIndex, properties);
+                              });
+                            }
+                            setEditedData({});
+                          }
+                          setIsEditMode(!isEditMode);
+                        }}
+                        disabled={!selectedLayer}
+                        className={`flex items-center gap-2 px-3 py-2 ${isEditMode ? 'bg-green-600 border-green-700 hover:bg-green-700' : 'bg-amber-600 border-amber-700 hover:bg-amber-700'} text-white border rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm`}
+                        title={isEditMode ? "Save Changes" : "Edit Layer Data"}
+                    >
+                        <Edit size={16} />
+                        <span className="hidden sm:inline">{isEditMode ? 'Save' : 'Edit'}</span>
+                    </button>
+
+                    <button 
+                        onClick={handleExportCSV}
+                        disabled={!selectedLayer}
+                        className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+                        title="Export to CSV"
+                    >
+                        <Download size={16} />
+                        <span className="hidden sm:inline">Export CSV</span>
                     </button>
 
                     <button 
@@ -656,7 +802,9 @@ export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayer
                                 <tr key={row.id} className="hover:bg-slate-50 transition-colors">
                                     {tableData.headers.map(header => (
                                         <td key={`${row.id}-${header}`} className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 max-w-xs overflow-hidden text-ellipsis">
-                                            {row[header] !== undefined && row[header] !== null ? String(row[header]) : '-'}
+                                            {isEditMode ? renderEditableCell(row, header) : (
+                                                row[header] !== undefined && row[header] !== null ? String(row[header]) : '-'
+                                            )}
                                         </td>
                                     ))}
                                 </tr>

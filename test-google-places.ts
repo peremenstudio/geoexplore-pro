@@ -30,7 +30,8 @@ const GOOGLE_PLACES_API_KEY = env.GOOGLE_PLACES_API || '';
 
 console.log('\n🧪 Testing Google Places API Connection\n');
 console.log(`API Key loaded: ${GOOGLE_PLACES_API_KEY ? '✓ Yes' : '✗ No'}`);
-console.log(`API Key value: ${GOOGLE_PLACES_API_KEY.substring(0, 30)}...`);
+console.log(`API Key value: ${GOOGLE_PLACES_API_KEY.substring(0, 20)}...`);
+console.log(`API Key length: ${GOOGLE_PLACES_API_KEY.length} chars`);
 
 if (!GOOGLE_PLACES_API_KEY) {
   console.error('\n❌ ERROR: Google Places API key not found in .env.local');

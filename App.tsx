@@ -641,11 +641,13 @@ export default function App() {
   };
 
   const handleUpdateFeature = (layerId: string, featureIndex: number, newProperties: GeoJsonProperties) => {
+      console.log('handleUpdateFeature called:', { layerId, featureIndex, newProperties });
+      
       if (newProperties.Priority === 'Urgent') {
           newProperties._urgentTimestamp = Date.now();
       }
       if (layerId === 'draft-layer') {
-          setDraftFeatures(prev => prev.map((f, idx) => idx === featureIndex ? { ...f, properties: newProperties } : f));
+          setDraftFeatures(prev => prev.map((f, idx) => idx === featureIndex ? { ...f, properties: { ...f.properties, ...newProperties } } : f));
         if (newProperties.Priority === 'Urgent') {
           setTimeout(() => {
             setDraftFeatures(current => current.map((f, idx) => idx === featureIndex ? { ...f } : f));
@@ -653,11 +655,15 @@ export default function App() {
         }
           return;
       }
-      setLayers(prev => prev.map(l => l.id === layerId ? {
+      setLayers(prev => {
+        const updated = prev.map(l => l.id === layerId ? {
           ...l,
-          data: { ...l.data, features: l.data.features.map((f, idx) => idx === featureIndex ? { ...f, properties: newProperties } : f) },
+          data: { ...l.data, features: l.data.features.map((f, idx) => idx === featureIndex ? { ...f, properties: { ...f.properties, ...newProperties } } : f) },
           lastUpdated: Date.now()
-      } : l));
+        } : l);
+        console.log('Updated layers:', updated);
+        return updated;
+      });
       if (newProperties.Priority === 'Urgent') {
         setTimeout(() => {
           setLayers(current => current.map(l => l.id === layerId ? { ...l, lastUpdated: Date.now() } : l));
@@ -862,6 +868,7 @@ export default function App() {
                   onFileUpload={handleFileUpload}
                   isLoading={isLoading}
                   onAddLayer={(newLayer) => setLayers(prev => [...prev, newLayer])}
+                  onUpdateFeature={handleUpdateFeature}
                />
              </div>
           )}
