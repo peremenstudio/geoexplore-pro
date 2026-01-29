@@ -1,6 +1,11 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 
+// Get API key from environment - works on both Vercel and local dev
 const GOOGLE_PLACES_API_KEY = process.env.GOOGLE_PLACES_API || '';
+
+console.log('[API] GOOGLE_PLACES_API_KEY configured:', !!GOOGLE_PLACES_API_KEY);
+console.log('[API] Available env vars:', Object.keys(process.env).filter(k => k.includes('GOOGLE')));
+
 const PLACES_API_URL = 'https://maps.googleapis.com/maps/api/place/nearbysearch/json';
 const DETAILS_API_URL = 'https://maps.googleapis.com/maps/api/place/details/json';
 

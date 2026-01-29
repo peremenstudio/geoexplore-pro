@@ -4,21 +4,32 @@ import { resolve } from 'path';
 
 // Load environment variables from .env.local
 function loadEnv(): Record<string, string> {
-  const envPath = resolve(process.cwd(), '.env.local');
-  const envContent = readFileSync(envPath, 'utf-8');
-  const env: Record<string, string> = {};
-  
-  envContent.split('\n').forEach((line) => {
-    const trimmed = line.trim();
-    if (trimmed && !trimmed.startsWith('#')) {
-      const [key, ...valueParts] = trimmed.split('=');
-      if (key) {
-        env[key.trim()] = valueParts.join('=').trim();
+  try {
+    const envPath = resolve(process.cwd(), '.env.local');
+    console.log(`📂 Reading env from: ${envPath}`);
+    const envContent = readFileSync(envPath, 'utf-8');
+    const env: Record<string, string> = {};
+    
+    envContent.split('\n').forEach((line) => {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith('#')) {
+        const [key, ...valueParts] = trimmed.split('=');
+        if (key) {
+          const cleanKey = key.trim();
+          const cleanValue = valueParts.join('=').trim();
+          env[cleanKey] = cleanValue;
+          if (cleanKey === 'GOOGLE_PLACES_API') {
+            console.log(`✓ Loaded ${cleanKey}: ${cleanValue.substring(0, 20)}...`);
+          }
+        }
       }
-    }
-  });
-  
-  return env;
+    });
+    
+    return env;
+  } catch (error) {
+    console.error('❌ Error loading .env.local:', error);
+    return {};
+  }
 }
 
 const env = loadEnv();
@@ -138,6 +149,7 @@ const server = http.createServer(async (req, res) => {
 
 const PORT = 3001;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Google Places API proxy running on http://localhost:${PORT}`);
-  console.log(`📍 Vite app should be running on http://localhost:3000`);
+  console.log(`\n✅ Google Places API proxy running on http://localhost:${PORT}`);
+  console.log(`📍 Make sure Vite is also running: npm run dev`);
+  console.log(`🔑 API Key loaded: ${GOOGLE_PLACES_API_KEY ? '✓ Yes' : '✗ No (check .env.local)'}\n`);
 });

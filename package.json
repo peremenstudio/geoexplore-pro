@@ -4,9 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"tsx dev-server.ts\" \"vite\"",
-    "dev:vite": "vite",
+    "dev": "vite",
     "dev:api": "tsx dev-server.ts",
+    "dev:all": "concurrently \"tsx dev-server.ts\" \"vite\"",
+    "test:google": "tsx test-google-places.ts",
     "build": "vite build",
     "preview": "vite preview"
   },
