@@ -13,7 +13,7 @@ Follow these steps to set up the Google Places API key on Vercel:
    - Go to "Environment Variables"
    - Click "Add New"
    - **Name:** `GOOGLE_PLACES_API`
-   - **Value:** `AIzaSyBmMCrF8ZSK0EPQfyOw8a0rGjJev95cuyk`
+   - **Value:** `your_google_places_api_key_here` (get from Google Cloud Console)
    - **Environments:** Select all (Production, Preview, Development)
    - Click "Save"
 
