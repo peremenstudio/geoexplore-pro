@@ -4,6 +4,7 @@ import MapboxDraw from '@mapbox/mapbox-gl-draw';
 import * as turf from '@turf/turf';
 import type { Layer as LayerType } from '../types';
 import { Feature } from 'geojson';
+import { getNextLayerColor } from '../utils/layerColors';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
 
@@ -131,7 +132,7 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
                 type: 'FeatureCollection',
                 features: [feature]
               },
-              color: '#ef4444',
+              color: getNextLayerColor(),
               opacity: 0.7,
               type: 'polygon',
               grid: { show: false, showLabels: false, size: 1, opacity: 0.5 },

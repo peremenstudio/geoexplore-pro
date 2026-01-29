@@ -3,6 +3,7 @@ import MapboxDraw from '@mapbox/mapbox-gl-draw';
 import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
 import { Circle, Square, Pencil } from 'lucide-react';
 import { FeatureCollection } from 'geojson';
+import { getNextLayerColor } from '../utils/layerColors';
 
 interface DrawingToolsProps {
     map: any;
@@ -73,7 +74,7 @@ export const DrawingTools: React.FC<DrawingToolsProps> = ({ map, isActive, onSha
                         }
                     ]
                 } as FeatureCollection,
-                color: '#6366f1',
+                color: getNextLayerColor(),
                 opacity: 0.4,
                 type: 'polygon',
                 grid: { show: false, showLabels: false, size: 0.5, opacity: 0.5 },

@@ -3,6 +3,7 @@ import { useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { Circle, Square, Pencil } from 'lucide-react';
 import { FeatureCollection } from 'geojson';
+import { getNextLayerColor } from '../utils/layerColors';
 
 interface LeafletDrawingToolsProps {
     isActive: boolean;
@@ -61,16 +62,17 @@ export const LeafletDrawingTools: React.FC<LeafletDrawingToolsProps> = ({ isActi
             const shapeName = `Shape-${String(newCount).padStart(2, '0')}`;
 
             let geoJson: any;
+            const layerColor = getNextLayerColor();
             if (drawMode === 'polygon') {
-                const polygon = L.polygon([...points, e.latlng], { color: '#6366f1' });
+                const polygon = L.polygon([...points, e.latlng], { color: layerColor });
                 geoJson = polygon.toGeoJSON();
             } else if (drawMode === 'rectangle') {
                 const bounds = L.latLngBounds(startPoint!, e.latlng);
-                const polygon = L.rectangle(bounds, { color: '#6366f1' });
+                const polygon = L.rectangle(bounds, { color: layerColor });
                 geoJson = polygon.toGeoJSON();
             } else if (drawMode === 'circle') {
                 const distance = map.latLngToContainerPoint(startPoint!).distanceTo(map.latLngToContainerPoint(e.latlng));
-                const circle = L.circle(startPoint!, distance, { color: '#6366f1' });
+                const circle = L.circle(startPoint!, distance, { color: layerColor });
                 geoJson = circle.toGeoJSON();
             }
 
@@ -89,7 +91,7 @@ export const LeafletDrawingTools: React.FC<LeafletDrawingToolsProps> = ({ isActi
                         }
                     }]
                 } as FeatureCollection,
-                color: '#6366f1',
+                    color: layerColor,
                 opacity: 0.4,
                 type: 'polygon',
                 grid: { show: false, showLabels: false, size: 0.5, opacity: 0.5 },

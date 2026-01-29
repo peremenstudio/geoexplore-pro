@@ -10,8 +10,11 @@ import { processFile } from './utils/fileProcessor';
 import { fetchNominatimPlaces } from './utils/nominatim';
 import { fetchOverpassData } from './utils/overpass';
 import { fetchDetailedNadlanTransactions } from './utils/nadlanApi';
-import { fetchTelAvivSportsFields } from './utils/telAvivGis';
-import { fetchJerusalemLayer, JERUSALEM_CATEGORIES } from './utils/jerusalemGis';
+import { fetchTelAvivSportsFields, fetchTelAvivLayers, fetchTelAvivLayerData, findMatchingLayers, GISLayerInfo } from './utils/telAvivGis';
+import { matchQueryToGISLayer } from './utils/aiAgent';
+import { fetchJerusalemLayers, fetchJerusalemLayerData } from './utils/jerusalemGis';
+import { fetchHaifaLayers, fetchHaifaLayerData } from './utils/haifaGis';
+import { getNextLayerColor } from './utils/layerColors';
 import { Layer, AppView } from './types';
 import { Menu, Map as MapIcon, Database, Layers, Compass, BarChart3, Loader2, Box, Download, Globe, Home, Crosshair, Search, Info, Building, Flag, ShoppingCart, ChevronDown, ChevronRight } from 'lucide-react';
 import { Feature, GeoJsonProperties } from 'geojson';
@@ -41,8 +44,19 @@ export default function App() {
   
   // New Fetch UI State
   const [expandedCategory, setExpandedCategory] = useState<'urban' | 'national' | 'commercial' | null>(null);
+  const [telAvivLayers, setTelAvivLayers] = useState<GISLayerInfo[]>([]);
+  const [telAvivQuery, setTelAvivQuery] = useState('');
+  const [telAvivSuggestions, setTelAvivSuggestions] = useState<GISLayerInfo[]>([]);
+  const [showAllTelAvivLayers, setShowAllTelAvivLayers] = useState(false);
+  const [jerusalemLayers, setJerusalemLayers] = useState<GISLayerInfo[]>([]);
+  const [jerusalemQuery, setJerusalemQuery] = useState('');
+  const [jerusalemSuggestions, setJerusalemSuggestions] = useState<GISLayerInfo[]>([]);
+  const [showAllJerusalemLayers, setShowAllJerusalemLayers] = useState(false);
+  const [haifaLayers, setHaifaLayers] = useState<GISLayerInfo[]>([]);
+  const [haifaQuery, setHaifaQuery] = useState('');
+  const [haifaSuggestions, setHaifaSuggestions] = useState<GISLayerInfo[]>([]);
+  const [showAllHaifaLayers, setShowAllHaifaLayers] = useState(false);
   const [selectedCity, setSelectedCity] = useState<string>('');
-  const [expandedJerusalemCategory, setExpandedJerusalemCategory] = useState<string | null>(null);
 
   // Analyze State
   const [analyzedLayerId, setAnalyzedLayerId] = useState<string | null>(null);
@@ -66,6 +80,45 @@ export default function App() {
   }, [layers, activeView, analyzedLayerId, filteredFeatures]);
 
   useEffect(() => {
+    // Load Tel Aviv layers on mount
+    const loadTelAvivLayers = async () => {
+      try {
+        const layers = await fetchTelAvivLayers();
+        setTelAvivLayers(layers);
+      } catch (err) {
+        console.error('Failed to load Tel Aviv layers:', err);
+      }
+    };
+    loadTelAvivLayers();
+  }, []);
+
+  useEffect(() => {
+    // Load Jerusalem layers on mount
+    const loadJerusalemLayers = async () => {
+      try {
+        const layers = await fetchJerusalemLayers();
+        setJerusalemLayers(layers);
+      } catch (err) {
+        console.error('Failed to load Jerusalem layers:', err);
+      }
+    };
+    loadJerusalemLayers();
+  }, []);
+
+  useEffect(() => {
+    // Load Haifa layers on mount
+    const loadHaifaLayers = async () => {
+      try {
+        const layers = await fetchHaifaLayers();
+        setHaifaLayers(layers);
+      } catch (err) {
+        console.error('Failed to load Haifa layers:', err);
+      }
+    };
+    loadHaifaLayers();
+  }, []);
+
+  useEffect(() => {
       if (activeView !== 'analyze') {
           setAnalyzedLayerId(null);
           setFilteredFeatures(null);
@@ -84,7 +137,7 @@ export default function App() {
         name: nameOverride || file.name.split('.')[0],
         visible: true,
         data: geojson,
-        color: `#${Math.floor(Math.random()*16777215).toString(16)}`,
+        color: getNextLayerColor(),
         opacity: 0.7,
         type: 'point',
         grid: {
@@ -186,7 +239,7 @@ export default function App() {
             type: 'FeatureCollection',
             features: cleanFeatures
             },
-            color: '#6366f1',
+            color: getNextLayerColor(),
             opacity: 1,
             type: 'point',
             grid: {
@@ -273,7 +326,7 @@ export default function App() {
                 name: config.name || `${config.query} (OSM)`,
                 visible: true,
                 data: { type: 'FeatureCollection', features },
-                color: '#ec4899',
+                color: getNextLayerColor(),
                 opacity: 1,
                 type: 'point',
                 grid: { show: false, showLabels: false, size: 0.5, opacity: 0.5 },
@@ -306,7 +359,7 @@ export default function App() {
                 name: `עסקאות: ${city}`,
                 visible: true,
                 data: { type: 'FeatureCollection', features },
-                color: '#d97706', // Amber-600
+                color: getNextLayerColor(),
                 opacity: 1,
                 type: 'point',
                 grid: { show: false, showLabels: false, size: 0.5, opacity: 0.5 },
@@ -323,18 +376,158 @@ export default function App() {
     }
   };
 
+  const handleTelAvivQueryChange = (value: string) => {
+    setTelAvivQuery(value);
+    
+    // Show suggestions in real-time
+    if (value.trim() && telAvivLayers.length > 0) {
+      const matches = findMatchingLayers(value, telAvivLayers);
+      setTelAvivSuggestions(matches);
+    } else {
+      setTelAvivSuggestions([]);
+    }
+  };
+
+  const handleSelectTelAvivLayer = async (layerId: number, layerName: string) => {
+    setIsLoading(true);
+    try {
+      console.log(`🎯 Selected layer: ${layerName} (ID: ${layerId})`);
+      
+      // Fetch data from selected layer
+      const features = await fetchTelAvivLayerData(layerId);
+      
+      if (features.length === 0) {
+        alert(`Layer "${layerName}" returned no data`);
+        return;
+      }
+
+      const newLayer: Layer = {
+        id: `tel-aviv-${Date.now()}`,
+        name: layerName,
+        visible: true,
+        data: { type: 'FeatureCollection', features },
+        color: getNextLayerColor(),
+        opacity: 0.7,
+        type: 'point',
+        grid: { show: false, showLabels: false, size: 0.5, opacity: 0.5 },
+        lastUpdated: Date.now()
+      };
+      setLayers(prev => [...prev, newLayer]);
+      setZoomToLayerId(newLayer.id);
+      setTelAvivQuery('');
+      setTelAvivSuggestions([]);
+    } catch (e: any) {
+      alert(`Error fetching Tel Aviv data: ${e.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleJerusalemQueryChange = (value: string) => {
+    setJerusalemQuery(value);
+
+    if (value.trim() && jerusalemLayers.length > 0) {
+      const matches = findMatchingLayers(value, jerusalemLayers);
+      setJerusalemSuggestions(matches);
+    } else {
+      setJerusalemSuggestions([]);
+    }
+  };
+
+  const handleSelectJerusalemLayer = async (layerId: number, layerName: string) => {
+    setIsLoading(true);
+    try {
+      console.log(`🎯 Selected Jerusalem layer: ${layerName} (ID: ${layerId})`);
+
+      const features = await fetchJerusalemLayerData(layerId);
+
+      if (features.length === 0) {
+        alert(`Layer "${layerName}" returned no data`);
+        return;
+      }
+
+      const newLayer: Layer = {
+        id: `jerusalem-${Date.now()}`,
+        name: layerName,
+        visible: true,
+        data: { type: 'FeatureCollection', features },
+        color: getNextLayerColor(),
+        opacity: 0.7,
+        type: 'point',
+        grid: { show: false, showLabels: false, size: 0.5, opacity: 0.5 },
+        lastUpdated: Date.now()
+      };
+      setLayers(prev => [...prev, newLayer]);
+      setZoomToLayerId(newLayer.id);
+      setJerusalemQuery('');
+      setJerusalemSuggestions([]);
+    } catch (e: any) {
+      alert(`Error fetching Jerusalem data: ${e.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleHaifaQueryChange = (value: string) => {
+    setHaifaQuery(value);
+
+    if (value.trim() && haifaLayers.length > 0) {
+      const matches = findMatchingLayers(value, haifaLayers);
+      setHaifaSuggestions(matches);
+    } else {
+      setHaifaSuggestions([]);
+    }
+  };
+
+  const handleSelectHaifaLayer = async (layer: GISLayerInfo) => {
+    if (!layer.url) {
+      alert('This Haifa layer does not have a data URL.');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      console.log(`🎯 Selected Haifa layer: ${layer.name} (${layer.serviceName || 'Service'})`);
+
+      const features = await fetchHaifaLayerData(layer.url);
+
+      if (features.length === 0) {
+        alert(`Layer "${layer.name}" returned no data`);
+        return;
+      }
+
+      const newLayer: Layer = {
+        id: `haifa-${Date.now()}`,
+        name: layer.name,
+        visible: true,
+        data: { type: 'FeatureCollection', features },
+        color: getNextLayerColor(),
+        opacity: 0.7,
+        type: 'point',
+        grid: { show: false, showLabels: false, size: 0.5, opacity: 0.5 },
+        lastUpdated: Date.now()
+      };
+      setLayers(prev => [...prev, newLayer]);
+      setZoomToLayerId(newLayer.id);
+      setHaifaQuery('');
+      setHaifaSuggestions([]);
+    } catch (e: any) {
+      alert(`Error fetching Haifa data: ${e.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleFetchTelAvivLayer = async (layerType: string) => {
     setIsLoading(true);
     try {
         let features: Feature[] = [];
         let layerName = '';
-        let color = '';
 
         switch(layerType) {
             case 'sports':
                 features = await fetchTelAvivSportsFields();
                 layerName = 'Tel Aviv - Sports Fields';
-                color = '#10b981'; // Green
                 break;
             default:
                 throw new Error('Unknown layer type');
@@ -348,39 +541,9 @@ export default function App() {
                 name: layerName,
                 visible: true,
                 data: { type: 'FeatureCollection', features },
-                color: color,
+              color: getNextLayerColor(),
                 opacity: 0.7,
                 type: 'polygon',
-                grid: { show: false, showLabels: false, size: 0.5, opacity: 0.5 },
-                lastUpdated: Date.now()
-            };
-            setLayers(prev => [...prev, newLayer]);
-            setZoomToLayerId(newLayer.id);
-            setRightPanelMode('layer');
-        }
-    } catch (e: any) {
-        alert(`Error: ${e.message}`);
-    } finally {
-        setIsLoading(false);
-    }
-  };
-
-  const handleFetchJerusalemLayer = async (layerId: number, layerName: string, color: string) => {
-    setIsLoading(true);
-    try {
-        const features = await fetchJerusalemLayer(layerId);
-        
-        if (features.length === 0) {
-            alert(`No data found for ${layerName}`);
-        } else {
-            const newLayer: Layer = {
-                id: `jlm-${layerId}-${Date.now()}`,
-                name: `Jerusalem - ${layerName}`,
-                visible: true,
-                data: { type: 'FeatureCollection', features },
-                color: color,
-                opacity: 0.7,
-                type: 'point',
                 grid: { show: false, showLabels: false, size: 0.5, opacity: 0.5 },
                 lastUpdated: Date.now()
             };
@@ -413,6 +576,11 @@ export default function App() {
       }
       if (layerId === 'draft-layer') {
           setDraftFeatures(prev => prev.map((f, idx) => idx === featureIndex ? { ...f, properties: newProperties } : f));
+        if (newProperties.Priority === 'Urgent') {
+          setTimeout(() => {
+            setDraftFeatures(current => current.map((f, idx) => idx === featureIndex ? { ...f } : f));
+          }, 60000);
+        }
           return;
       }
       setLayers(prev => prev.map(l => l.id === layerId ? {
@@ -420,6 +588,11 @@ export default function App() {
           data: { ...l.data, features: l.data.features.map((f, idx) => idx === featureIndex ? { ...f, properties: newProperties } : f) },
           lastUpdated: Date.now()
       } : l));
+      if (newProperties.Priority === 'Urgent') {
+        setTimeout(() => {
+          setLayers(current => current.map(l => l.id === layerId ? { ...l, lastUpdated: Date.now() } : l));
+        }, 60000);
+      }
   };
 
   const handleAddLayer = (newLayer: Layer) => {
@@ -685,83 +858,270 @@ export default function App() {
                               <p className="text-xs font-semibold text-slate-600 mb-2">Available Layers</p>
                               
                               {selectedCity === 'tel-aviv' && (
-                                <>
-                                  <button 
-                                    onClick={() => handleFetchTelAvivLayer('sports')}
-                                    disabled={isLoading}
-                                    className="w-full flex items-center justify-between p-3 bg-white rounded-lg border border-slate-200 hover:border-green-300 hover:bg-green-50 transition-all group disabled:opacity-50 disabled:cursor-not-allowed"
-                                  >
-                                    <div className="flex items-center gap-2">
-                                      <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                                      <span className="text-sm font-medium text-slate-700 group-hover:text-green-700">Sports Fields</span>
-                                    </div>
-                                    {isLoading ? <Loader2 size={14} className="animate-spin text-green-600" /> : <Download size={14} className="text-slate-400 group-hover:text-green-600" />}
-                                  </button>
-
-                                  <button className="w-full flex items-center justify-between p-3 bg-white rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition-all group">
-                                    <div className="flex items-center gap-2">
-                                      <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                                      <span className="text-sm font-medium text-slate-700 group-hover:text-blue-700">Public Transportation</span>
-                                    </div>
-                                    <Download size={14} className="text-slate-400 group-hover:text-blue-600" />
-                                  </button>
-
-                                  <button className="w-full flex items-center justify-between p-3 bg-white rounded-lg border border-slate-200 hover:border-amber-300 hover:bg-amber-50 transition-all group">
-                                    <div className="flex items-center gap-2">
-                                      <div className="w-2 h-2 rounded-full bg-amber-500"></div>
-                                      <span className="text-sm font-medium text-slate-700 group-hover:text-amber-700">Parks & Gardens</span>
-                                    </div>
-                                    <Download size={14} className="text-slate-400 group-hover:text-amber-600" />
-                                  </button>
-                                </>
-                              )}
-
-                              {selectedCity === 'jerusalem' && (
-                                <div className="space-y-2">
-                                  {JERUSALEM_CATEGORIES.map((category) => (
-                                    <div key={category.id} className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                                <div className="space-y-3 relative">
+                                  <label className="block text-xs font-semibold text-slate-600">Query Layer (e.g., "parks", "trees", "parking")</label>
+                                  <div className="text-xs text-slate-500 mb-2">
+                                    {telAvivLayers.length > 0 ? (
                                       <button
-                                        onClick={() => setExpandedJerusalemCategory(expandedJerusalemCategory === category.id ? null : category.id)}
-                                        className="w-full flex items-center justify-between p-2.5 hover:bg-slate-50 transition-colors"
+                                        type="button"
+                                        onClick={() => setShowAllTelAvivLayers(prev => !prev)}
+                                        className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100 transition-colors"
                                       >
-                                        <span className="text-sm font-semibold text-slate-700">{category.name}</span>
-                                        {expandedJerusalemCategory === category.id ? 
-                                          <ChevronDown size={16} className="text-slate-400" /> : 
-                                          <ChevronRight size={16} className="text-slate-400" />
-                                        }
+                                        <span className="font-semibold text-slate-700">
+                                          {showAllTelAvivLayers ? 'Hide all layers' : 'Show all layers'} ({telAvivLayers.length})
+                                        </span>
+                                        {showAllTelAvivLayers ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                                       </button>
-                                      
-                                      {expandedJerusalemCategory === category.id && (
-                                        <div className="border-t border-slate-100 bg-slate-50 p-2 space-y-1.5">
-                                          {category.layers.map((layer) => (
-                                            <button
-                                              key={layer.id}
-                                              onClick={() => handleFetchJerusalemLayer(layer.id, layer.name, layer.color)}
-                                              disabled={isLoading}
-                                              className="w-full flex items-center justify-between p-2.5 bg-white rounded-md border border-slate-200 hover:border-slate-300 hover:shadow-sm transition-all group disabled:opacity-50 disabled:cursor-not-allowed"
-                                            >
-                                              <div className="flex items-center gap-2">
-                                                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: layer.color }}></div>
-                                                <span className="text-xs font-medium text-slate-700">{layer.name}</span>
-                                              </div>
-                                              {isLoading ? 
-                                                <Loader2 size={12} className="animate-spin text-slate-600" /> : 
-                                                <Download size={12} className="text-slate-400 group-hover:text-slate-600" />
-                                              }
-                                            </button>
-                                          ))}
-                                        </div>
-                                      )}
+                                    ) : (
+                                      <div className="p-2 bg-slate-50 border border-slate-200 rounded">⏳ Loading layers...</div>
+                                    )}
+                                  </div>
+                                  {showAllTelAvivLayers && telAvivLayers.length > 0 && (
+                                    <div className="max-h-56 overflow-y-auto border border-slate-200 rounded-lg bg-white">
+                                      <div className="p-2 space-y-1">
+                                        {telAvivLayers.map(l => (
+                                          <div key={l.id} className="text-xs text-slate-600">• {l.name}</div>
+                                        ))}
+                                      </div>
                                     </div>
-                                  ))}
+                                  )}
+                                  <form onSubmit={(e) => { 
+                                    e.preventDefault(); 
+                                    if (telAvivSuggestions.length > 0) {
+                                      handleSelectTelAvivLayer(telAvivSuggestions[0].id, telAvivSuggestions[0].name);
+                                    } else if (telAvivQuery.trim() && telAvivLayers.length > 0) {
+                                      // Fallback: try to find any partial match
+                                      const any = telAvivLayers.find(l => l.name.toLowerCase().includes(telAvivQuery.toLowerCase()));
+                                      if (any) handleSelectTelAvivLayer(any.id, any.name);
+                                      else alert(`No layer found matching "${telAvivQuery}". Please refine your search.`);
+                                    }
+                                  }} className="relative">
+                                    <input
+                                      type="text"
+                                      value={telAvivQuery}
+                                      onChange={(e) => handleTelAvivQueryChange(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && telAvivSuggestions.length > 0) {
+                                          e.preventDefault();
+                                          handleSelectTelAvivLayer(telAvivSuggestions[0].id, telAvivSuggestions[0].name);
+                                        }
+                                      }}
+                                      placeholder="Type to search layers..."
+                                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
+                                      autoComplete="off"
+                                    />
+                                    <button
+                                      type="submit"
+                                      disabled={isLoading || !telAvivQuery.trim()}
+                                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                      title="Fetch data"
+                                    >
+                                      {isLoading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                                    </button>
+                                  </form>
+                                  
+                                  {/* Real-time suggestions */}
+                                  {telAvivSuggestions.length > 0 && (
+                                    <div className="bg-white border border-slate-200 rounded-lg shadow-md overflow-hidden">
+                                      <div className="p-2 space-y-1 max-h-48 overflow-y-auto">
+                                        <p className="text-xs font-semibold text-slate-600 px-2 py-1 sticky top-0 bg-white">Did you mean?</p>
+                                        {telAvivSuggestions.map((layer) => (
+                                          <button
+                                            key={layer.id}
+                                            type="button"
+                                            onClick={() => handleSelectTelAvivLayer(layer.id, layer.name)}
+                                            disabled={isLoading}
+                                            className="w-full text-left px-3 py-2 rounded hover:bg-purple-50 transition-all text-sm text-slate-700 hover:text-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                          >
+                                            <div className="font-medium truncate">{layer.name}</div>
+                                            {layer.description && <div className="text-xs text-slate-500 truncate">{layer.description}</div>}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  <p className="text-xs text-slate-500">Type a layer name and press Enter or click a suggestion</p>
                                 </div>
                               )}
 
-                              {selectedCity !== 'tel-aviv' && selectedCity !== 'jerusalem' && (
+                              {selectedCity === 'jerusalem' && (
+                                <div className="space-y-3 relative">
+                                  <label className="block text-xs font-semibold text-slate-600">Query Layer (e.g., "roads", "schools", "parks")</label>
+                                  <div className="text-xs text-slate-500 mb-2">
+                                    {jerusalemLayers.length > 0 ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => setShowAllJerusalemLayers(prev => !prev)}
+                                        className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100 transition-colors"
+                                      >
+                                        <span className="font-semibold text-slate-700">
+                                          {showAllJerusalemLayers ? 'Hide all layers' : 'Show all layers'} ({jerusalemLayers.length})
+                                        </span>
+                                        {showAllJerusalemLayers ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                      </button>
+                                    ) : (
+                                      <div className="p-2 bg-slate-50 border border-slate-200 rounded">⏳ Loading layers...</div>
+                                    )}
+                                  </div>
+                                  {showAllJerusalemLayers && jerusalemLayers.length > 0 && (
+                                    <div className="max-h-56 overflow-y-auto border border-slate-200 rounded-lg bg-white">
+                                      <div className="p-2 space-y-1">
+                                        {jerusalemLayers.map(l => (
+                                          <div key={l.id} className="text-xs text-slate-600">• {l.name}</div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  <form onSubmit={(e) => { 
+                                    e.preventDefault(); 
+                                    if (jerusalemSuggestions.length > 0) {
+                                      handleSelectJerusalemLayer(jerusalemSuggestions[0].id, jerusalemSuggestions[0].name);
+                                    } else if (jerusalemQuery.trim() && jerusalemLayers.length > 0) {
+                                      const any = jerusalemLayers.find(l => l.name.toLowerCase().includes(jerusalemQuery.toLowerCase()));
+                                      if (any) handleSelectJerusalemLayer(any.id, any.name);
+                                      else alert(`No layer found matching "${jerusalemQuery}". Please refine your search.`);
+                                    }
+                                  }} className="relative">
+                                    <input
+                                      type="text"
+                                      value={jerusalemQuery}
+                                      onChange={(e) => handleJerusalemQueryChange(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && jerusalemSuggestions.length > 0) {
+                                          e.preventDefault();
+                                          handleSelectJerusalemLayer(jerusalemSuggestions[0].id, jerusalemSuggestions[0].name);
+                                        }
+                                      }}
+                                      placeholder="Type to search layers..."
+                                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none"
+                                      autoComplete="off"
+                                    />
+                                    <button
+                                      type="submit"
+                                      disabled={isLoading || !jerusalemQuery.trim()}
+                                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-sky-600 text-white rounded hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                      title="Fetch data"
+                                    >
+                                      {isLoading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                                    </button>
+                                  </form>
+
+                                  {jerusalemSuggestions.length > 0 && (
+                                    <div className="bg-white border border-slate-200 rounded-lg shadow-md overflow-hidden">
+                                      <div className="p-2 space-y-1 max-h-48 overflow-y-auto">
+                                        <p className="text-xs font-semibold text-slate-600 px-2 py-1 sticky top-0 bg-white">Did you mean?</p>
+                                        {jerusalemSuggestions.map((layer) => (
+                                          <button
+                                            key={layer.id}
+                                            type="button"
+                                            onClick={() => handleSelectJerusalemLayer(layer.id, layer.name)}
+                                            disabled={isLoading}
+                                            className="w-full text-left px-3 py-2 rounded hover:bg-sky-50 transition-all text-sm text-slate-700 hover:text-sky-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                          >
+                                            <div className="font-medium truncate">{layer.name}</div>
+                                            {layer.description && <div className="text-xs text-slate-500 truncate">{layer.description}</div>}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  <p className="text-xs text-slate-500">Type a layer name and press Enter or click a suggestion</p>
+                                </div>
+                              )}
+
+                              {selectedCity === 'haifa' && (
+                                <div className="space-y-3 relative">
+                                  <label className="block text-xs font-semibold text-slate-600">Query Layer (e.g., "roads", "parks", "utilities")</label>
+                                  <div className="text-xs text-slate-500 mb-2">
+                                    {haifaLayers.length > 0 ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => setShowAllHaifaLayers(prev => !prev)}
+                                        className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100 transition-colors"
+                                      >
+                                        <span className="font-semibold text-slate-700">
+                                          {showAllHaifaLayers ? 'Hide all layers' : 'Show all layers'} ({haifaLayers.length})
+                                        </span>
+                                        {showAllHaifaLayers ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                      </button>
+                                    ) : (
+                                      <div className="p-2 bg-slate-50 border border-slate-200 rounded">⏳ Loading layers...</div>
+                                    )}
+                                  </div>
+                                  {showAllHaifaLayers && haifaLayers.length > 0 && (
+                                    <div className="max-h-56 overflow-y-auto border border-slate-200 rounded-lg bg-white">
+                                      <div className="p-2 space-y-1">
+                                        {haifaLayers.map(l => (
+                                          <div key={`${l.serviceName || 'service'}-${l.id}`} className="text-xs text-slate-600">
+                                            • {l.name}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  <form onSubmit={(e) => { 
+                                    e.preventDefault(); 
+                                    if (haifaSuggestions.length > 0) {
+                                      handleSelectHaifaLayer(haifaSuggestions[0]);
+                                    } else if (haifaQuery.trim() && haifaLayers.length > 0) {
+                                      const any = haifaLayers.find(l => l.name.toLowerCase().includes(haifaQuery.toLowerCase()));
+                                      if (any) handleSelectHaifaLayer(any);
+                                      else alert(`No layer found matching "${haifaQuery}". Please refine your search.`);
+                                    }
+                                  }} className="relative">
+                                    <input
+                                      type="text"
+                                      value={haifaQuery}
+                                      onChange={(e) => handleHaifaQueryChange(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && haifaSuggestions.length > 0) {
+                                          e.preventDefault();
+                                          handleSelectHaifaLayer(haifaSuggestions[0]);
+                                        }
+                                      }}
+                                      placeholder="Type to search layers..."
+                                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none"
+                                      autoComplete="off"
+                                    />
+                                    <button
+                                      type="submit"
+                                      disabled={isLoading || !haifaQuery.trim()}
+                                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                      title="Fetch data"
+                                    >
+                                      {isLoading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                                    </button>
+                                  </form>
+
+                                  {haifaSuggestions.length > 0 && (
+                                    <div className="bg-white border border-slate-200 rounded-lg shadow-md overflow-hidden">
+                                      <div className="p-2 space-y-1 max-h-48 overflow-y-auto">
+                                        <p className="text-xs font-semibold text-slate-600 px-2 py-1 sticky top-0 bg-white">Did you mean?</p>
+                                        {haifaSuggestions.map((layer) => (
+                                          <button
+                                            key={`${layer.serviceName || 'service'}-${layer.id}`}
+                                            type="button"
+                                            onClick={() => handleSelectHaifaLayer(layer)}
+                                            disabled={isLoading}
+                                            className="w-full text-left px-3 py-2 rounded hover:bg-green-50 transition-all text-sm text-slate-700 hover:text-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                          >
+                                            <div className="font-medium truncate">{layer.name}</div>
+                                            {layer.description && <div className="text-xs text-slate-500 truncate">{layer.description}</div>}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  <p className="text-xs text-slate-500">Type a layer name and press Enter or click a suggestion</p>
+                                </div>
+                              )}
+
+                              {selectedCity !== 'tel-aviv' && selectedCity !== 'jerusalem' && selectedCity !== 'haifa' && (
                                 <div className="p-4 bg-slate-100 rounded-lg border border-slate-200">
                                   <p className="text-sm text-slate-500 italic text-center">Layers for this city coming soon</p>
                                 </div>
                               )}
+
                             </div>
                           )}
                         </div>

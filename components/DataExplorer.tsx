@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Layer } from '../types';
 import { Search, ChevronLeft, ChevronRight, FileText, Download, Merge, AlertTriangle, X, Upload, Loader2, Link2 } from 'lucide-react';
 import { fetchGoogleSheetGeoJSON, fetchSheetHeaders, isValidSheetUrl } from '../utils/googleSheets';
+import { getNextLayerColor } from '../utils/layerColors';
 
 interface DataExplorerProps {
   layers: Layer[];
@@ -189,7 +190,7 @@ export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayer
         name: `Google Sheet ${new Date().toLocaleString()}`,
         data: geojson,
         visible: true,
-        color: '#3B82F6',
+                color: getNextLayerColor(),
         opacity: 0.7,
         type: 'point',
         grid: {
@@ -235,7 +236,7 @@ export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayer
         name: `Google Sheet (${geojson.features.length} points)`,
         visible: true,
         data: geojson,
-        color: `#${Math.floor(Math.random()*16777215).toString(16)}`,
+                color: getNextLayerColor(),
         opacity: 0.7,
         type: 'point',
         grid: { show: false, showLabels: false, size: 0.5, opacity: 0.5 },

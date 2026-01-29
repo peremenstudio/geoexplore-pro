@@ -103,3 +103,78 @@ export const fetchAIPlaces = async (query: string): Promise<Feature[]> => {
         throw error;
     }
 };
+
+/**
+ * Matches user's natural language query to GIS layers
+ * Returns the best matching layer ID and name
+ */
+export const matchQueryToGISLayer = async (userQuery: string, availableLayers: Array<{ id: number; name: string; description?: string }>): Promise<{ layerId: number; layerName: string } | null> => {
+    const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
+    
+    if (!apiKey) {
+        throw new Error("API Key is missing");
+    }
+
+    try {
+        const layersList = availableLayers
+            .map(l => `ID: ${l.id}, Name: "${l.name}"${l.description ? `, Description: ${l.description}` : ''}`)
+            .join('\n');
+
+        const prompt = `User query: "${userQuery}"
+
+Available GIS layers:
+${layersList}
+
+Identify which layer matches the query. Return ONLY valid JSON: {"layerId": <number>, "layerName": "<string>"}
+If no match: {"layerId": null, "layerName": null}`;
+
+        const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [{ text: prompt }]
+                }],
+                generationConfig: {
+                    temperature: 0.2,
+                    maxOutputTokens: 150
+                }
+            })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('API Error Response:', errorText);
+            throw new Error(`API error: ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        
+        if (!data.candidates || !data.candidates[0]) {
+            throw new Error('No response from API');
+        }
+        
+        let text = data.candidates[0]?.content?.parts?.[0]?.text || '';
+        
+        if (!text) {
+            throw new Error('Empty response text');
+        }
+        
+        // Clean markdown
+        text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        
+        const result = JSON.parse(text);
+        
+        if (result.layerId !== null && result.layerId !== undefined) {
+            return {
+                layerId: result.layerId,
+                layerName: result.layerName
+            };
+        }
+        
+        return null;
+    } catch (error) {
+        console.error("Layer matching error:", error);
+        throw error;
+    }
+};

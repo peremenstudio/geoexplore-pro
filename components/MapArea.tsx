@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { createRoot, Root } from 'react-dom/client';
-import { MapContainer, TileLayer, GeoJSON, useMap, useMapEvents, Circle } from 'react-leaflet';
+import { MapContainer, TileLayer, GeoJSON, useMap, useMapEvents, Circle, Pane } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Layer } from '../types';
@@ -524,37 +524,41 @@ const LayerRenderer: React.FC<{
                     
                     // If count > 0, it's an overlapping point.
                     // Increase radius for each subsequent point to create rings.
-                    const radiusStep = 3.5; 
-                    const finalRadius = baseRadius + (count * radiusStep);
-                    const isOverlap = count > 0;
-
                     const isUrgent = feature.properties?.Priority === 'Urgent';
                     const urgentColor = '#ef4444'; // Red
+
+                    const radiusStep = 3.5; 
+                    const urgentRadiusBoost = isUrgent ? 4 : 0;
+                    const finalRadius = baseRadius + (count * radiusStep) + urgentRadiusBoost;
+                    const isOverlap = count > 0;
 
                     // Priority Pulse Logic:
                     // Check if priority is 'Urgent' and if the update happened within the last 10 seconds.
                     let className = '';
+                    let urgentPane: string | undefined;
                     if (isUrgent) {
                         const timestamp = feature.properties?._urgentTimestamp;
                         const now = Date.now();
-                        // If timestamp exists and it was less than 10 seconds ago
-                        if (timestamp && (now - timestamp < 10000)) {
+                        // If timestamp exists and it was less than 60 seconds ago
+                        if (timestamp && (now - timestamp < 60000)) {
                             className = 'urgent-pulse-effect';
+                            urgentPane = 'urgentPane';
                         }
                     }
 
                     return L.circleMarker(latlng, {
                         radius: finalRadius,
                         // First point (center) gets filled. Overlaps (rings) are transparent.
-                        fillColor: isOverlap ? 'transparent' : (isUrgent ? urgentColor : layer.color),
+                        fillColor: isUrgent ? urgentColor : (isOverlap ? 'transparent' : layer.color),
                         // Ring border is layer color. Center point border is white for contrast.
                         color: isUrgent ? urgentColor : (isOverlap ? layer.color : '#fff'),
                         // Thicker lines for rings
-                        weight: isOverlap ? 2 : 1.5,
+                        weight: isUrgent ? 2.5 : (isOverlap ? 2 : 1.5),
                         opacity: 1,
                         // Transparent fill for rings
-                        fillOpacity: isOverlap ? 0 : (isDraft ? 0.9 : layer.opacity * 0.8),
-                        className: className
+                        fillOpacity: isUrgent ? 1 : (isOverlap ? 0 : (isDraft ? 0.9 : layer.opacity * 0.8)),
+                        className: className,
+                        pane: urgentPane
                     });
                 }}
                 onEachFeature={(feature, l) => {
@@ -665,6 +669,8 @@ export const MapArea: React.FC<MapAreaProps> = ({
             tileSize={512}
             zoomOffset={-1}
         />
+
+        <Pane name="urgentPane" style={{ zIndex: 700 }} />
         
         {/* Render Layers using separate component to handle schema calculation per layer */}
         {allLayers.map(layer => (

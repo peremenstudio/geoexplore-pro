@@ -5,6 +5,8 @@ import proj4 from 'proj4';
 const ITM = '+proj=tmerc +lat_0=31.7343936111111 +lon_0=35.2045169444444 +k=1.0000067 +x_0=219529.584 +y_0=626907.39 +ellps=GRS80 +towgs84=-48,55,52,0,0,0,0 +units=m +no_defs';
 const WGS84 = '+proj=longlat +datum=WGS84 +no_defs';
 
+export const TEL_AVIV_GIS_SERVER = 'https://gisn.tel-aviv.gov.il/arcgis/rest/services/IView2/MapServer';
+
 /**
  * Converts coordinates from ITM (Israel TM Grid) to WGS84 if needed
  * @param x - X coordinate (longitude or easting)
@@ -123,4 +125,133 @@ export const fetchArcGISLayer = async (layerUrl: string): Promise<Feature[]> => 
         console.error('ArcGIS Error:', error);
         throw new Error(`Failed to fetch layer: ${error.message}`);
     }
+};
+
+/**
+ * Hebrew to English translations for common GIS layer names
+ */
+const HEBREW_TO_ENGLISH: { [key: string]: string[] } = {
+    'עצים': ['trees', 'tree', 'vegetation', 'flora', 'green'],
+    'פארקים': ['parks', 'park', 'gardens', 'green space'],
+    'גנים': ['gardens', 'garden', 'parks'],
+    'חנייה': ['parking', 'parking lots', 'parking spaces'],
+    'מדרכות': ['sidewalks', 'pedestrian', 'walkways'],
+    'אופניים': ['bikes', 'bicycles', 'cycling'],
+    'תחזוקה': ['maintenance', 'facilities'],
+    'בריאות': ['health', 'hospitals', 'clinics', 'medical'],
+    'חינוך': ['schools', 'education', 'educational'],
+    'תרבות': ['culture', 'cultural', 'museums', 'theater'],
+    'ספורט': ['sports', 'sports fields', 'recreation', 'fitness'],
+    'תחבורה': ['transportation', 'transport', 'transit', 'public transport'],
+    'אזור': ['area', 'zone', 'region'],
+    'כביש': ['roads', 'streets', 'highways', 'paths'],
+    'מים': ['water', 'lakes', 'rivers', 'fountains'],
+    'תורם': ['contributors', 'community'],
+    'לילה': ['night', 'evening', 'lights', 'lighting'],
+};
+
+/**
+ * Fetches available layers from Tel Aviv GIS Server
+ */
+export interface GISLayerInfo {
+    id: number;
+    name: string;
+    englishName?: string;
+    type: string;
+    description?: string;
+    url?: string;
+    serviceName?: string;
+}
+
+export const fetchTelAvivLayers = async (): Promise<GISLayerInfo[]> => {
+    try {
+        const url = `${TEL_AVIV_GIS_SERVER}?f=json`;
+        console.log('📡 Fetching layers from:', url);
+        
+        const response = await fetch(url);
+        console.log('📊 Response status:', response.status);
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Server error response:', errorText);
+            throw new Error(`Server returned ${response.status}: ${errorText}`);
+        }
+        
+        const data = await response.json();
+        console.log('📥 Fetched data:', data);
+        
+        if (!data.layers || !Array.isArray(data.layers)) {
+            console.warn('No layers found in response');
+            return [];
+        }
+        
+        const layers = data.layers.map((layer: any) => ({
+            id: layer.id,
+            name: layer.name,
+            englishName: findEnglishName(layer.name),
+            type: layer.type || 'Unknown',
+            description: layer.description
+        }));
+        
+        console.log(`✅ Loaded ${layers.length} layers from Tel Aviv GIS`);
+        return layers;
+    } catch (error: any) {
+        console.error('❌ Failed to fetch Tel Aviv layers:', error);
+        throw error;
+    }
+};
+
+/**
+ * Fetches data from a specific Tel Aviv GIS layer by ID
+ */
+export const fetchTelAvivLayerData = async (layerId: number): Promise<Feature[]> => {
+    const url = `${TEL_AVIV_GIS_SERVER}/${layerId}/query?where=1%3D1&outFields=*&f=json`;
+    console.log('🗺️ Fetching layer data from:', url);
+    try {
+        const features = await fetchArcGISLayer(url);
+        console.log(`✅ Loaded ${features.length} features from layer ${layerId}`);
+        return features;
+    } catch (error: any) {
+        console.error(`❌ Failed to fetch layer ${layerId}:`, error);
+        throw error;
+    }
+};
+
+/**
+ * Find matching layers by name - searches both Hebrew and English
+ */
+export const findMatchingLayers = (query: string, layers: GISLayerInfo[]): GISLayerInfo[] => {
+    const lower = query.toLowerCase();
+    return layers
+        .filter(l => {
+            // Search in Hebrew name
+            if (l.name.toLowerCase().includes(lower)) return true;
+            // Search in English name or translations
+            if (l.englishName && l.englishName.toLowerCase().includes(lower)) return true;
+            return false;
+        })
+        .sort((a, b) => {
+            // Prioritize exact matches and matches at the start
+            const aHebrewStart = a.name.toLowerCase().startsWith(lower);
+            const bHebrewStart = b.name.toLowerCase().startsWith(lower);
+            const aEnglishStart = a.englishName && a.englishName.toLowerCase().startsWith(lower);
+            const bEnglishStart = b.englishName && b.englishName.toLowerCase().startsWith(lower);
+            
+            if ((aHebrewStart || aEnglishStart) && !(bHebrewStart || bEnglishStart)) return -1;
+            if (!(aHebrewStart || aEnglishStart) && (bHebrewStart || bEnglishStart)) return 1;
+            return a.name.localeCompare(b.name);
+        })
+        .slice(0, 5); // Return top 5 matches
+};
+
+/**
+ * Find English name for a Hebrew layer name
+ */
+const findEnglishName = (hebrewName: string): string => {
+    for (const [hebrew, englishOptions] of Object.entries(HEBREW_TO_ENGLISH)) {
+        if (hebrewName.includes(hebrew)) {
+            return englishOptions[0]; // Return first English option
+        }
+    }
+    return hebrewName; // Fallback to original if no translation found
 };
