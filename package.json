@@ -12,9 +12,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
     "@google/genai": "latest",
     "@mapbox/mapbox-gl-draw": "^1.5.1",
     "@mapbox/togeojson": "0.16.2",
+    "@mui/material": "^7.3.7",
     "@turf/circle": "^7.3.2",
     "@turf/helpers": "^7.3.2",
     "@turf/turf": "^7.3.2",
@@ -25,6 +28,7 @@
     "lucide-react": "^0.561.0",
     "mapbox-gl": "^3.18.1",
     "proj4": "^2.20.2",
+    "rc-slider": "^11.1.9",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "react-leaflet": "^5.0.0",

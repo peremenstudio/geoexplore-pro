@@ -4,6 +4,8 @@ import { Feature } from 'geojson';
 import { BarChart3, Filter, PieChart, Layers, Check, X, MoreHorizontal, LayoutGrid, List, AlignVerticalJustifyEnd, Map as MapIcon, Clock, User, Pencil, Square, Circle, Scissors } from 'lucide-react';
 import { generateWalkingIsochrones } from '../utils/spatialAnalysis';
 import { filterFeaturesByPolygon } from '../utils/spatialFilter';
+import Slider from '@mui/material/Slider';
+import Box from '@mui/material/Box';
 
 interface AnalyzeViewProps {
     layers: Layer[];
@@ -16,11 +18,30 @@ type FilterValue = string[] | { min: number; max: number };
 
 // Color Palette for categorical data
 const COLORS = [
-    '#6366f1', '#ec4899', '#8b5cf6', '#14b8a6', '#f59e0b', 
-    '#ef4444', '#3b82f6', '#10b981', '#f97316', '#64748b'
+    '#f2c80f', '#fc625e', '#a66999', '#c07350', '#9c9a9b', 
+    '#608a5d', '#b888ad', '#fdab85', '#f7de6f', '#b7b3b3'
 ];
 
 const getColor = (index: number) => COLORS[index % COLORS.length];
+
+// Helper to determine if a column is relevant
+const isRelevantColumn = (columnName: string, values: any[]): boolean => {
+    // Skip metadata columns
+    if (columnName.startsWith('_') || columnName === 'id' || columnName === 'created_at' || 
+        columnName === 'name' || columnName.toLowerCase() === 'geometry') {
+        return false;
+    }
+
+    // Count unique non-empty values
+    const uniqueValues = new Set(
+        values
+            .filter(v => v !== undefined && v !== null && v !== '')
+            .map(v => String(v))
+    );
+
+    // Must have at least 3 different values to be considered relevant
+    return uniqueValues.size >= 3;
+};
 
 // Helper to determine column type
 const getColumnType = (value: any): 'string' | 'number' | 'other' => {
@@ -29,122 +50,93 @@ const getColumnType = (value: any): 'string' | 'number' | 'other' => {
     return 'other';
 };
 
-// --- Dual Range Slider Component ---
+// --- Dual Range Slider Component (MUI) ---
 const DualRangeSlider: React.FC<{
     min: number;
     max: number;
     value: { min: number; max: number };
     onChange: (value: { min: number; max: number }) => void;
 }> = ({ min, max, value, onChange }) => {
-    // Local state for smooth dragging and typing
-    const [minVal, setMinVal] = useState(value.min);
-    const [maxVal, setMaxVal] = useState(value.max);
+    // Use controlled local state during dragging
+    const [sliderValue, setSliderValue] = useState<[number, number]>([value.min, value.max]);
+    const isFirstRender = useRef(true);
 
-    // Sync with external value changes (e.g. clear filters)
+    // Sync with external value changes only on mount and when not dragging
     useEffect(() => {
-        setMinVal(value.min);
-        setMaxVal(value.max);
-    }, [value]);
+        if (isFirstRender.current) {
+            isFirstRender.current = false;
+            return;
+        }
+        setSliderValue([value.min, value.max]);
+    }, [value.min, value.max]);
 
     // Determine decimals based on range size
     const range = max - min;
     const step = range < 10 && range > 0 ? 0.01 : range < 100 && range > 0 ? 0.1 : 1;
 
-    // Safe Percentage Calculation (handles range = 0)
-    const getPercent = (val: number) => {
-        if (range <= 0) return 0;
-        return Math.max(0, Math.min(100, ((val - min) / range) * 100));
-    };
-
-    const minPercent = getPercent(minVal);
-    const maxPercent = range <= 0 ? 100 : getPercent(maxVal);
-
-    // Slider Handlers
-    const handleMinSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const val = Math.min(Number(e.target.value), maxVal - step);
-        setMinVal(val);
-        onChange({ min: val, max: maxVal });
-    };
-
-    const handleMaxSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const val = Math.max(Number(e.target.value), minVal + step);
-        setMaxVal(val);
-        onChange({ min: minVal, max: val });
-    };
-
-    // Input Handlers (Commit on Blur or Enter)
-    const handleMinInputBlur = () => {
-        // Clamp: Cannot be less than global min, cannot be more than current max
-        let val = Math.max(min, Math.min(minVal, maxVal)); 
-        setMinVal(val);
-        onChange({ min: val, max: maxVal });
-    };
-
-    const handleMaxInputBlur = () => {
-        // Clamp: Cannot be more than global max, cannot be less than current min
-        let val = Math.min(max, Math.max(maxVal, minVal));
-        setMaxVal(val);
-        onChange({ min: minVal, max: val });
-    };
-
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === 'Enter') {
-            (e.currentTarget as HTMLInputElement).blur();
+    const handleChange = (event: Event, newValue: number | number[]) => {
+        if (Array.isArray(newValue)) {
+            // Update local state immediately for smooth UI
+            setSliderValue([newValue[0], newValue[1]]);
+            // Also update parent
+            onChange({ min: newValue[0], max: newValue[1] });
         }
     };
 
+    const valuetext = (val: number) => {
+        return val.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    };
+
     return (
-        <div className="relative w-full h-14 select-none mb-1">
-             {/* Track Background - Positioned at top-2 */}
-            <div className="absolute top-2 w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                <div 
-                    className="h-full bg-coral-500 transition-all duration-75"
-                    style={{ marginLeft: `${minPercent}%`, width: `${maxPercent - minPercent}%` }}
-                />
-            </div>
-
-            {/* Range Inputs - Overlapping with pointer-events magic, aligned with track */}
-            <input
-                type="range"
+        <Box sx={{ width: '100%', px: 1, mt: 1, mb: 2 }}>
+            <Slider
+                value={sliderValue}
+                onChange={handleChange}
+                valueLabelDisplay="auto"
+                getAriaValueText={valuetext}
                 min={min}
                 max={max}
                 step={step}
-                value={minVal}
-                onChange={handleMinSliderChange}
-                className="absolute top-0 w-full h-6 bg-transparent pointer-events-none appearance-none z-20 [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-coral-600 [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:appearance-none [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-coral-600 [&::-moz-range-thumb]:shadow-md [&::-moz-range-thumb]:appearance-none"
+                disableSwap={false}
+                sx={{
+                    color: '#f2c80f',
+                    height: 6,
+                    '& .MuiSlider-thumb': {
+                        width: 18,
+                        height: 18,
+                        backgroundColor: '#fff',
+                        border: '2px solid #f2c80f',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                        transition: 'all 0.2s ease-out',
+                        '&:hover': {
+                            boxShadow: '0 0 0 10px rgba(242, 200, 15, 0.2)',
+                        },
+                        '&.Mui-active': {
+                            boxShadow: '0 0 0 12px rgba(242, 200, 15, 0.3)',
+                        },
+                    },
+                    '& .MuiSlider-track': {
+                        height: 6,
+                        backgroundColor: '#f2c80f',
+                        border: 'none',
+                    },
+                    '& .MuiSlider-rail': {
+                        height: 6,
+                        backgroundColor: '#e2e8f0',
+                        opacity: 1,
+                    },
+                    '& .MuiSlider-valueLabel': {
+                        fontSize: 11,
+                        fontWeight: 'bold',
+                        backgroundColor: '#334155',
+                    },
+                }}
             />
-            <input
-                type="range"
-                min={min}
-                max={max}
-                step={step}
-                value={maxVal}
-                onChange={handleMaxSliderChange}
-                className="absolute top-0 w-full h-6 bg-transparent pointer-events-none appearance-none z-30 [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-coral-600 [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:appearance-none [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-coral-600 [&::-moz-range-thumb]:shadow-md [&::-moz-range-thumb]:appearance-none"
-            />
-
-            {/* Editable Input Labels - Pushed to bottom */}
-            <div className="absolute bottom-0 left-0 z-40">
-                <input 
-                    type="number"
-                    value={minVal}
-                    onChange={(e) => setMinVal(Number(e.target.value))}
-                    onBlur={handleMinInputBlur}
-                    onKeyDown={handleKeyDown}
-                    className="w-20 text-[10px] font-bold text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 focus:ring-2 focus:ring-coral-500 focus:border-coral-500 outline-none text-center shadow-sm transition-all"
-                />
+            <div className="flex justify-between text-[10px] font-bold text-slate-400 mt-1">
+                <span>{sliderValue[0].toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                <span>{sliderValue[1].toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
             </div>
-            <div className="absolute bottom-0 right-0 z-40">
-                 <input 
-                    type="number"
-                    value={maxVal}
-                    onChange={(e) => setMaxVal(Number(e.target.value))}
-                    onBlur={handleMaxInputBlur}
-                    onKeyDown={handleKeyDown}
-                    className="w-20 text-[10px] font-bold text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 focus:ring-2 focus:ring-coral-500 focus:border-coral-500 outline-none text-center shadow-sm transition-all"
-                />
-            </div>
-        </div>
+        </Box>
     );
 };
 
@@ -152,9 +144,10 @@ const DualRangeSlider: React.FC<{
 const AttributeWidget: React.FC<{
     attribute: string;
     features: Feature[];
+    allFeatures: Feature[]; // Unfiltered features for stats calculation
     activeFilters: FilterValue | undefined;
     onToggleFilter: (value: any) => void;
-}> = ({ attribute, features, activeFilters, onToggleFilter }) => {
+}> = ({ attribute, features, allFeatures, activeFilters, onToggleFilter }) => {
     
     // Default to 'bar' (Cluster Bar / List) for strings
     const [chartType, setChartType] = useState<ChartType>('bar');
@@ -172,26 +165,24 @@ const AttributeWidget: React.FC<{
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    // Calculate Stats / Frequency
+    // Calculate Stats from ALL features (not filtered) to get true min/max
     const stats = useMemo(() => {
-        const values = features.map(f => f.properties?.[attribute]);
+        const values = allFeatures.map(f => f.properties?.[attribute]);
         const type = getColumnType(values.find(v => v !== undefined && v !== null && v !== ''));
 
         if (type === 'number') {
             const nums = values.filter(v => typeof v === 'number') as number[];
-            if (nums.length === 0) return { type: 'number', min: 0, max: 0, avg: 0, sum: 0 };
-            const sum = nums.reduce((a, b) => a + b, 0);
+            if (nums.length === 0) return { type: 'number', min: 0, max: 0 };
             return {
                 type: 'number',
                 min: Math.min(...nums),
-                max: Math.max(...nums),
-                avg: sum / nums.length,
-                sum
+                max: Math.max(...nums)
             };
         } else {
-            // String / Categorical
+            // String / Categorical - use filtered features for distribution
+            const filteredValues = features.map(f => f.properties?.[attribute]);
             const counts: Record<string, number> = {};
-            values.forEach(v => {
+            filteredValues.forEach(v => {
                 const key = v === undefined || v === null || v === '' ? '(Empty)' : String(v);
                 counts[key] = (counts[key] || 0) + 1;
             });
@@ -205,7 +196,7 @@ const AttributeWidget: React.FC<{
                 totalCount
             };
         }
-    }, [features, attribute]);
+    }, [allFeatures, features, attribute]);
 
     // Render Numerical Widget with Slider
     if (stats.type === 'number') {
@@ -220,15 +211,15 @@ const AttributeWidget: React.FC<{
                     <span className="font-bold text-slate-700 text-sm truncate" title={attribute}>{attribute}</span>
                 </div>
                 
-                {/* KPI Grid */}
+                {/* KPI Grid - Min and Max only */}
                 <div className="grid grid-cols-2 gap-3 mb-4">
                      <div className="bg-slate-50 p-2 rounded-lg">
-                         <span className="block text-[10px] uppercase text-slate-400 font-bold">Sum</span>
-                         <span className="text-sm font-bold text-slate-800">{stats.sum.toLocaleString(undefined, { maximumFractionDigits: 1, notation: 'compact' })}</span>
+                         <span className="block text-[10px] uppercase text-slate-400 font-bold">Min</span>
+                         <span className="text-sm font-bold text-slate-800">{stats.min.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                      </div>
                      <div className="bg-slate-50 p-2 rounded-lg">
-                         <span className="block text-[10px] uppercase text-slate-400 font-bold">Avg</span>
-                         <span className="text-sm font-bold text-slate-800">{stats.avg.toLocaleString(undefined, { maximumFractionDigits: 1, notation: 'compact' })}</span>
+                         <span className="block text-[10px] uppercase text-slate-400 font-bold">Max</span>
+                         <span className="text-sm font-bold text-slate-800">{stats.max.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                      </div>
                 </div>
 
@@ -501,16 +492,23 @@ export const AnalyzeView: React.FC<AnalyzeViewProps> = ({ layers, onFilterChange
         setFilters({});
         setSelectedAttributes([]);
         if (selectedLayer) {
-             // Auto-select first 4 interesting columns
-            const firstFeature = selectedLayer.data.features[0];
-            if (firstFeature?.properties) {
-                const keys = Object.keys(firstFeature.properties)
-                    .filter(k => !k.startsWith('_') && k !== 'id' && k !== 'created_at')
-                    .slice(0, 4);
-                setSelectedAttributes(keys);
+             // Auto-select up to 4 relevant columns (with at least 3 different values)
+            const features = selectedLayer.data.features;
+            if (features.length > 0 && features[0]?.properties) {
+                const firstFeature = features[0];
+                const allKeys = Object.keys(firstFeature.properties);
+                
+                // Filter for relevant columns
+                const relevantKeys = allKeys.filter(key => {
+                    const values = features.map(f => f.properties?.[key]);
+                    return isRelevantColumn(key, values);
+                });
+                
+                // Take first 4 relevant columns
+                setSelectedAttributes(relevantKeys.slice(0, 4));
             }
         }
-    }, [selectedLayerId]); // Only trigger when ID actually changes
+    }, [selectedLayerId]);
 
     // Calculate Filtered Features (for cross-filtering across all widgets)
     const filteredFeatures = useMemo(() => {
@@ -808,7 +806,8 @@ export const AnalyzeView: React.FC<AnalyzeViewProps> = ({ layers, onFilterChange
                             <AttributeWidget 
                                 key={attr}
                                 attribute={attr}
-                                features={filteredFeatures} // Pass filtered features for cross-filtering
+                                features={filteredFeatures} // Filtered features for display
+                                allFeatures={selectedLayer.data.features} // Original unfiltered features for stats
                                 activeFilters={filters[attr]}
                                 onToggleFilter={(val) => toggleFilter(attr, val)}
                             />
