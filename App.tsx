@@ -725,6 +725,7 @@ export default function App() {
             isPickingLocation={isPickingLocation}
             pickingLayerName={pendingLayerName}
             draftCount={draftFeatures.length}
+            onAddLayer={handleAddLayer}
           />
         </div>
         <div className="p-4 border-t border-slate-100 text-[10px] text-slate-400 text-center font-medium tracking-wide">

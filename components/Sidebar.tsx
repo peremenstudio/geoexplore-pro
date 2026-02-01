@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Upload, Settings, Loader2, Plus, MapPin, Check, X, FileUp } from 'lucide-react';
-import { AppView } from '../types';
+import { Upload, Settings, Loader2, Plus, MapPin, Check, X, FileUp, Globe } from 'lucide-react';
+import { AppView, Layer } from '../types';
+import { LamasDataFetcher } from './LamasDataFetcher';
 
 interface SidebarProps {
   activeView: AppView;
@@ -13,6 +14,7 @@ interface SidebarProps {
   isPickingLocation: boolean;
   pickingLayerName?: string;
   draftCount?: number;
+  onAddLayer?: (layer: Layer) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -25,7 +27,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCancelPickLocation,
   isPickingLocation,
   pickingLayerName,
-  draftCount = 0
+  draftCount = 0,
+  onAddLayer
 }) => {
   const [layerName, setLayerName] = useState('');
   const [newLayerName, setNewLayerName] = useState('');
@@ -157,6 +160,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
            </div>
         </div>
       </section>
+
+      {/* National Data Section (LAMAS) */}
+      {onAddLayer && (
+        <section>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+              <Globe size={14} className="text-blue-500" /> National Data
+            </h3>
+          </div>
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <LamasDataFetcher onAddLayer={onAddLayer} />
+          </div>
+        </section>
+      )}
 
       {/* Info Section */}
       <div className="bg-gradient-to-br from-coral-600 to-violet-700 rounded-2xl p-5 text-white shadow-lg shadow-coral-200">
