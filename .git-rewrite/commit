@@ -1,0 +1,6 @@
+tree c2b64445366db5ad09c8af91dc32e0ac6752952a
+parent 148cf9300541b89373e3f9a89ada65b26b75bb32
+author GeoExplore Admin <admin@geoexplore.local> 1769436910 +0200
+committer GeoExplore Admin <admin@geoexplore.local> 1769436910 +0200
+
+Fix Google Sheets modal - use fixed positioning
