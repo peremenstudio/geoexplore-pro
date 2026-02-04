@@ -4,6 +4,7 @@ import { Feature } from 'geojson';
 import { BarChart3, Filter, PieChart, Layers, Check, X, MoreHorizontal, LayoutGrid, List, AlignVerticalJustifyEnd, Map as MapIcon, Clock, User, Pencil, Square, Circle, Scissors } from 'lucide-react';
 import { generateWalkingIsochrones } from '../utils/spatialAnalysis';
 import { filterFeaturesByPolygon } from '../utils/spatialFilter';
+import { getFieldHebrewName } from '../utils/lamasFiles';
 import Slider from '@mui/material/Slider';
 import Box from '@mui/material/Box';
 
@@ -201,6 +202,7 @@ const AttributeWidget: React.FC<{
     // Render Numerical Widget with Slider
     if (stats.type === 'number') {
         const currentRange = (activeFilters as { min: number, max: number }) || { min: stats.min, max: stats.max };
+        const displayName = getFieldHebrewName(attribute);
 
         return (
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between h-full">
@@ -208,7 +210,7 @@ const AttributeWidget: React.FC<{
                     <div className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg">
                         <PieChart size={16} />
                     </div>
-                    <span className="font-bold text-slate-700 text-sm truncate" title={attribute}>{attribute}</span>
+                    <span className="font-bold text-slate-700 text-sm truncate" title={displayName}>{displayName}</span>
                 </div>
                 
                 {/* KPI Grid - Min and Max only */}
@@ -239,6 +241,7 @@ const AttributeWidget: React.FC<{
 
     // --- Render Categorical Widget ---
     const activeStringFilters = (activeFilters as string[]) || [];
+    const displayName = getFieldHebrewName(attribute);
 
     const renderChart = () => {
         // 1. Cluster Bar (List)
@@ -411,7 +414,7 @@ const AttributeWidget: React.FC<{
                     <div className="p-1.5 bg-coral-50 text-coral-600 rounded-lg flex-shrink-0">
                         <BarChart3 size={16} />
                     </div>
-                    <span className="font-bold text-slate-700 text-sm truncate" title={attribute}>{attribute}</span>
+                    <span className="font-bold text-slate-700 text-sm truncate" title={displayName}>{displayName}</span>
                  </div>
                  
                  <div className="flex items-center gap-2 flex-shrink-0">
@@ -784,8 +787,9 @@ export const AnalyzeView: React.FC<AnalyzeViewProps> = ({ layers, onFilterChange
                                         ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
                                         : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300'
                                     }`}
+                                    title={attr}
                                 >
-                                    {attr}
+                                    {getFieldHebrewName(attr)}
                                 </button>
                             ))}
                         </div>

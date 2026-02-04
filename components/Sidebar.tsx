@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Upload, Settings, Loader2, Plus, MapPin, Check, X, FileUp, Globe } from 'lucide-react';
 import { AppView, Layer } from '../types';
-import { LamasDataFetcher } from './LamasDataFetcher';
+import { LamasFileLoader } from './LamasFileLoader';
 
 interface SidebarProps {
   activeView: AppView;
@@ -170,7 +170,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </h3>
           </div>
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <LamasDataFetcher onAddLayer={onAddLayer} />
+            <LamasFileLoader onAddLayer={onAddLayer} />
           </div>
         </section>
       )}

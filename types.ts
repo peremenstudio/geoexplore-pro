@@ -17,6 +17,19 @@ export interface Layer {
   type: 'point' | 'line' | 'polygon'; // simplified type hint
   grid: GridConfig;
   lastUpdated?: number;
+  metadata?: {
+    source?: string;
+    fileId?: string;
+    municipality?: string;
+    year?: number;
+    featureCount?: number;
+    loadedAt?: string;
+    fieldMetadata?: Array<{
+      field: string;
+      hebrewName: string;
+      category: string;
+    }>;
+  };
 }
 
 export type AppView = 'map' | 'data' | 'explore' | 'analyze';

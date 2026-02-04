@@ -6,6 +6,7 @@ import { MapboxMap } from './components/MapboxMap';
 import { DataExplorer } from './components/DataExplorer';
 import { ExploreView } from './components/ExploreView';
 import { AnalyzeView } from './components/AnalyzeView';
+import { LamasFileLoader } from './components/LamasFileLoader';
 import { processFile } from './utils/fileProcessor';
 import { fetchNominatimPlaces } from './utils/nominatim';
 import { fetchOverpassData } from './utils/overpass';
@@ -1229,7 +1230,7 @@ export default function App() {
                       
                       {expandedCategory === 'national' && (
                         <div className="p-4 border-t border-slate-100 bg-slate-50">
-                          <p className="text-sm text-slate-500 italic">National datasets will be available soon</p>
+                          <LamasFileLoader onAddLayer={handleAddLayer} />
                         </div>
                       )}
                     </div>
