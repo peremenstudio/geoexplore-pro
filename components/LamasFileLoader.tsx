@@ -1,11 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Layer } from '../types';
-import {
-  AVAILABLE_LAMAS_FILES,
-  loadLamasFile,
-  filterByMunicipality,
-  getUniqueMunicipalities
-} from '../utils/lamasFiles';
+import { AVAILABLE_LAMAS_FILES, loadLamasFile } from '../utils/lamasFiles';
+import { Download, Loader2 } from 'lucide-react';
 
 interface LamasFileLoaderProps {
   onAddLayer: (layer: Layer) => void;
@@ -13,18 +9,9 @@ interface LamasFileLoaderProps {
 
 export const LamasFileLoader: React.FC<LamasFileLoaderProps> = ({ onAddLayer }) => {
   const [selectedFileId, setSelectedFileId] = useState<string>('mifkad2022');
-  const [selectedMunicipality, setSelectedMunicipality] = useState<string>('');
-  const [municipalities, setMunicipalities] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
   const [success, setSuccess] = useState<string>('');
-  const [externalUrl, setExternalUrl] = useState<string>('');
-
-  // Reset municipality filter when file changes
-  useEffect(() => {
-    setSelectedMunicipality('');
-    setMunicipalities([]);
-  }, [selectedFileId]);
 
   const handleLoadFile = async () => {
     setLoading(true);
@@ -33,25 +20,7 @@ export const LamasFileLoader: React.FC<LamasFileLoaderProps> = ({ onAddLayer }) 
 
     try {
       // Load the GeoJSON file
-      const geojson = await loadLamasFile(selectedFileId, externalUrl || undefined);
-      
-      // Get municipalities if not already loaded
-      if (municipalities.length === 0) {
-        const uniqueMunicipalities = getUniqueMunicipalities(geojson);
-        setMunicipalities(uniqueMunicipalities);
-      }
-
-      // Apply municipality filter if selected
-      let filteredData = geojson;
-      if (selectedMunicipality) {
-        filteredData = filterByMunicipality(geojson, selectedMunicipality);
-        
-        if (filteredData.features.length === 0) {
-          setError(`לא נמצאו נתונים עבור ${selectedMunicipality}`);
-          setLoading(false);
-          return;
-        }
-      }
+      const geojson = await loadLamasFile(selectedFileId);
 
       // Get file info
       const fileInfo = AVAILABLE_LAMAS_FILES.find(f => f.id === selectedFileId);
@@ -63,13 +32,11 @@ export const LamasFileLoader: React.FC<LamasFileLoaderProps> = ({ onAddLayer }) 
       // Create layer object
       const layer: Layer = {
         id: `lamas_${selectedFileId}_${Date.now()}`,
-        name: selectedMunicipality 
-          ? `${fileInfo.name} - ${selectedMunicipality}`
-          : fileInfo.name,
+        name: `Lamas-Mifkad_2022`,
         type: 'polygon',
-        data: filteredData,
+        data: geojson,
         visible: true,
-        color: '#3B82F6',
+        color: '#10B981',
         opacity: 0.6,
         grid: {
           show: false,
@@ -80,10 +47,9 @@ export const LamasFileLoader: React.FC<LamasFileLoaderProps> = ({ onAddLayer }) 
         metadata: {
           source: 'LAMAS',
           fileId: selectedFileId,
-          municipality: selectedMunicipality || 'כל הארץ',
           year: fileInfo.year,
           fieldMetadata: fileInfo.fieldMetadata,
-          featureCount: filteredData.features.length,
+          featureCount: geojson.features.length,
           loadedAt: new Date().toISOString()
         }
       };
@@ -92,140 +58,67 @@ export const LamasFileLoader: React.FC<LamasFileLoaderProps> = ({ onAddLayer }) 
       onAddLayer(layer);
 
       // Show success message
-      const featureCount = filteredData.features.length;
-      setSuccess(
-        `הקובץ נטען בהצלחה! ${featureCount} ישויות גאוגרפיות${
-          selectedMunicipality ? ` עבור ${selectedMunicipality}` : ''
-        }`
-      );
+      const featureCount = geojson.features.length;
+      setSuccess(`Successfully loaded ${featureCount.toLocaleString()} features!`);
     } catch (err) {
       console.error('Error loading LAMAS file:', err);
       setError(
         err instanceof Error
-          ? `שגיאה בטעינת הקובץ: ${err.message}`
-          : 'שגיאה לא ידועה בטעינת הקובץ'
+          ? `Error loading file: ${err.message}`
+          : 'Unknown error loading file'
       );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Load municipalities when file is selected (for pre-filtering)
-  const handleLoadMunicipalities = async () => {
-    if (municipalities.length > 0) return; // Already loaded
-
-    setLoading(true);
-    setError('');
-
-    try {
-      const geojson = await loadLamasFile(selectedFileId, externalUrl || undefined);
-      const uniqueMunicipalities = getUniqueMunicipalities(geojson);
-      setMunicipalities(uniqueMunicipalities);
-    } catch (err) {
-      console.error('Error loading municipalities:', err);
-      setError('שגיאה בטעינת רשימת הרשויות');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="p-4 bg-white rounded-lg shadow-sm space-y-4">
-      <h3 className="text-lg font-semibold text-gray-800">טעינת נתוני LAMAS</h3>
-
-      {/* File selector */}
+    <div className="space-y-3">
+      {/* Dataset selector */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          בחר קובץ
+        <label className="block text-xs font-semibold text-slate-600 mb-2">
+          Select Dataset
         </label>
         <select
           value={selectedFileId}
           onChange={(e) => setSelectedFileId(e.target.value)}
-          className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none bg-white"
           disabled={loading}
         >
-          {AVAILABLE_LAMAS_FILES.map(file => (
-            <option key={file.id} value={file.id}>
-              {file.name} ({file.year})
-            </option>
-          ))}
+          <option value="mifkad2022">Lamas-Mifkad_2022</option>
         </select>
-        {AVAILABLE_LAMAS_FILES.find(f => f.id === selectedFileId)?.description && (
-          <p className="text-sm text-gray-500 mt-1">
-            {AVAILABLE_LAMAS_FILES.find(f => f.id === selectedFileId)?.description}
-          </p>
-        )}
-      </div>
-
-      {/* External URL (optional) */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          כתובת URL חיצונית (אופציונלי)
-        </label>
-        <input
-          type="text"
-          value={externalUrl}
-          onChange={(e) => setExternalUrl(e.target.value)}
-          placeholder="https://..."
-          className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          disabled={loading}
-        />
-        <p className="text-xs text-gray-500 mt-1">
-          אם לא מוזן, הקובץ ייטען מהתיקייה המקומית
-        </p>
-      </div>
-
-      {/* Municipality filter */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          סינון לפי רשות
-        </label>
-        <div className="flex gap-2">
-          <select
-            value={selectedMunicipality}
-            onChange={(e) => setSelectedMunicipality(e.target.value)}
-            className="flex-1 p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            disabled={loading || municipalities.length === 0}
-          >
-            <option value="">כל הרשויות</option>
-            {municipalities.map(municipality => (
-              <option key={municipality} value={municipality}>
-                {municipality}
-              </option>
-            ))}
-          </select>
-          {municipalities.length === 0 && (
-            <button
-              onClick={handleLoadMunicipalities}
-              disabled={loading}
-              className="px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-            >
-              טען רשימה
-            </button>
-          )}
-        </div>
       </div>
 
       {/* Load button */}
       <button
         onClick={handleLoadFile}
         disabled={loading}
-        className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors"
+        className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
       >
-        {loading ? 'טוען...' : 'טען נתונים'}
+        {loading ? (
+          <>
+            <Loader2 size={16} className="animate-spin" />
+            Loading...
+          </>
+        ) : (
+          <>
+            <Download size={16} />
+            Load Data
+          </>
+        )}
       </button>
 
       {/* Success message */}
       {success && (
-        <div className="p-3 bg-green-50 border border-green-200 rounded-md">
-          <p className="text-sm text-green-800">{success}</p>
+        <div className="p-2 bg-green-50 border border-green-200 rounded-lg">
+          <p className="text-xs text-green-800">{success}</p>
         </div>
       )}
 
       {/* Error message */}
       {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-md">
-          <p className="text-sm text-red-800">{error}</p>
+        <div className="p-2 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-xs text-red-800">{error}</p>
         </div>
       )}
     </div>
