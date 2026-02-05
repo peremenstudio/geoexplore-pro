@@ -1,4 +1,4 @@
-# Logs
+﻿# Logs
 logs
 *.log
 npm-debug.log*
@@ -17,7 +17,6 @@ dist-ssr
 .env
 
 # Local data files
-public/data/prices/
 
 # Editor directories and files
 .vscode/*
@@ -29,3 +28,5 @@ public/data/prices/
 *.njsproj
 *.sln
 *.sw?
+# Local data files - deploy directly to Vercel
+# public/data/prices/
