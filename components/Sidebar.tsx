@@ -161,20 +161,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </section>
 
-      {/* National Data Section (LAMAS) */}
-      {onAddLayer && (
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
-              <Globe size={14} className="text-blue-500" /> National Data
-            </h3>
-          </div>
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <LamasFileLoader onAddLayer={onAddLayer} />
-          </div>
-        </section>
-      )}
-
       {/* Info Section */}
       <div className="bg-gradient-to-br from-coral-600 to-violet-700 rounded-2xl p-5 text-white shadow-lg shadow-coral-200">
         <h4 className="font-bold flex items-center gap-2 mb-3 text-sm">
