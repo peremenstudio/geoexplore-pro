@@ -213,7 +213,7 @@ export const processFile = async (file: File): Promise<FeatureCollection> => {
             const workbook = XLSX.read(xlsData, { type: 'array' });
             const sheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[sheetName];
-            const json = XLSX.utils.sheet_to_json(worksheet);
+            const json = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
             return convertXYToGeoJSON(json);
         }
 
@@ -224,7 +224,7 @@ export const processFile = async (file: File): Promise<FeatureCollection> => {
              const workbook = XLSX.read(csvText, { type: 'string' });
              const sheetName = workbook.SheetNames[0];
              const worksheet = workbook.Sheets[sheetName];
-             const json = XLSX.utils.sheet_to_json(worksheet);
+            const json = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
              const geojson = convertXYToGeoJSON(json);
              return formatDateColumns(geojson);
         }
@@ -257,7 +257,7 @@ export const processFile = async (file: File): Promise<FeatureCollection> => {
         const workbook = XLSX.read(arrayBuffer, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        const json = XLSX.utils.sheet_to_json(worksheet);
+        const json = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
         return convertXYToGeoJSON(json);
     }
 
@@ -267,7 +267,7 @@ export const processFile = async (file: File): Promise<FeatureCollection> => {
         const workbook = XLSX.read(text, { type: 'string' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        const json = XLSX.utils.sheet_to_json(worksheet);
+        const json = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
         const geojson = convertXYToGeoJSON(json);
         return formatDateColumns(geojson);
     }

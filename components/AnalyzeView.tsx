@@ -33,22 +33,34 @@ const isRelevantColumn = (columnName: string, values: any[]): boolean => {
         return false;
     }
 
-    // Count unique non-empty values
-    const uniqueValues = new Set(
-        values
-            .filter(v => v !== undefined && v !== null && v !== '')
-            .map(v => String(v))
-    );
-
-    // Must have at least 3 different values to be considered relevant
-    return uniqueValues.size >= 3;
+    // Show all columns - user wants to see everything
+    return true;
 };
 
-// Helper to determine column type
-const getColumnType = (value: any): 'string' | 'number' | 'other' => {
-    if (typeof value === 'number') return 'number';
-    if (typeof value === 'string') return 'string';
-    return 'other';
+// Helper to determine column type by checking all values
+const getColumnType = (values: any[]): 'string' | 'number' | 'other' => {
+    const nonEmptyValues = values.filter(v => v !== undefined && v !== null && v !== '');
+    
+    if (nonEmptyValues.length === 0) return 'string';
+    
+    // Count how many values are numbers
+    let numberCount = 0;
+    let stringCount = 0;
+    
+    for (const val of nonEmptyValues) {
+        if (typeof val === 'number') {
+            numberCount++;
+        } else if (typeof val === 'string') {
+            stringCount++;
+        }
+    }
+    
+    // If more than 50% are numbers, treat as numeric column
+    if (numberCount > stringCount) {
+        return 'number';
+    }
+    
+    return 'string';
 };
 
 // --- Dual Range Slider Component (MUI) ---
@@ -169,7 +181,7 @@ const AttributeWidget: React.FC<{
     // Calculate Stats from ALL features (not filtered) to get true min/max
     const stats = useMemo(() => {
         const values = allFeatures.map(f => f.properties?.[attribute]);
-        const type = getColumnType(values.find(v => v !== undefined && v !== null && v !== ''));
+        const type = getColumnType(values);
 
         if (type === 'number') {
             const nums = values.filter(v => typeof v === 'number') as number[];
