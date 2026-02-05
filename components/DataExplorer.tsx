@@ -21,6 +21,60 @@ export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayer
   const [isEditMode, setIsEditMode] = useState(false);
   const [editedData, setEditedData] = useState<Record<number, any>>({});
 
+  // Helper function to format date columns
+  const formatDateValue = (value: any, columnName: string): string => {
+    if (value === undefined || value === null) return '-';
+    if (!columnName.toUpperCase().includes('DEALDATE')) return String(value);
+    
+    let date: Date | null = null;
+    
+    // If it's a number, try Excel serial date format first (most common for CSV from Excel)
+    if (typeof value === 'number') {
+      // Excel serial date: days since Dec 30, 1899
+      // Convert to JavaScript timestamp
+      if (value > 0 && value < 100000) {
+        // Likely an Excel serial date
+        date = new Date((value - 25569) * 86400000);
+      }
+      // If not a valid date from Excel format, try as timestamp
+      if (!date || isNaN(date.getTime())) {
+        const asMs = new Date(value);
+        const asSec = new Date(value * 1000);
+        const now = Date.now();
+        if (Math.abs(now - asMs.getTime()) < Math.abs(now - asSec.getTime())) {
+          date = asMs;
+        } else {
+          date = asSec;
+        }
+      }
+    } else if (typeof value === 'string') {
+      // Try YYYYMMDD format
+      if (/^\d{8}$/.test(value)) {
+        const year = parseInt(value.substring(0, 4));
+        const month = parseInt(value.substring(4, 6));
+        const day = parseInt(value.substring(6, 8));
+        date = new Date(year, month - 1, day);
+      }
+      // Try standard date parsing
+      else {
+        const parsed = new Date(value);
+        if (!isNaN(parsed.getTime())) {
+          date = parsed;
+        }
+      }
+    }
+    
+    if (date && !isNaN(date.getTime())) {
+      return date.toLocaleDateString('en-US', { 
+        year: 'numeric', 
+        month: '2-digit', 
+        day: '2-digit' 
+      });
+    }
+    
+    return String(value);
+  };
+
   // Merge State
   const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
   const [mergeSourceId, setMergeSourceId] = useState<string>('');
@@ -803,7 +857,7 @@ export const DataExplorer: React.FC<DataExplorerProps> = ({ layers, onMergeLayer
                                     {tableData.headers.map(header => (
                                         <td key={`${row.id}-${header}`} className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 max-w-xs overflow-hidden text-ellipsis">
                                             {isEditMode ? renderEditableCell(row, header) : (
-                                                row[header] !== undefined && row[header] !== null ? String(row[header]) : '-'
+                                                formatDateValue(row[header], header)
                                             )}
                                         </td>
                                     ))}

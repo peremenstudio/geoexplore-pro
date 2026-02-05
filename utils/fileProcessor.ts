@@ -53,6 +53,41 @@ const convertXYToGeoJSON = (json: any): FeatureCollection => {
   };
 };
 
+// Helper to format date columns (Excel serial dates to ISO string)
+const formatDateColumns = (geojson: FeatureCollection): FeatureCollection => {
+  const excelDateToISO = (value: any): any => {
+    // Only process numbers that look like Excel serial dates
+    if (typeof value !== 'number' || value <= 0 || value >= 100000) {
+      return value;
+    }
+    
+    // Excel serial date: days since Dec 30, 1899
+    const date = new Date((value - 25569) * 86400000);
+    
+    if (!isNaN(date.getTime())) {
+      return date.toISOString().split('T')[0]; // Return YYYY-MM-DD format
+    }
+    
+    return value;
+  };
+
+  return {
+    ...geojson,
+    features: geojson.features.map(feature => ({
+      ...feature,
+      properties: feature.properties ? Object.entries(feature.properties).reduce((acc, [key, val]) => {
+        // Check if column name contains DEALDATE
+        if (key.toUpperCase().includes('DEALDATE')) {
+          acc[key] = excelDateToISO(val);
+        } else {
+          acc[key] = val;
+        }
+        return acc;
+      }, {} as any) : {}
+    }))
+  };
+};
+
 // Helper to sanitize ZIP buffers by trimming junk after the End of Central Directory (EOCD) record
 const fixZipBuffer = (buffer: ArrayBuffer): ArrayBuffer => {
     try {
@@ -190,7 +225,8 @@ export const processFile = async (file: File): Promise<FeatureCollection> => {
              const sheetName = workbook.SheetNames[0];
              const worksheet = workbook.Sheets[sheetName];
              const json = XLSX.utils.sheet_to_json(worksheet);
-             return convertXYToGeoJSON(json);
+             const geojson = convertXYToGeoJSON(json);
+             return formatDateColumns(geojson);
         }
 
         throw new Error('No supported geospatial files (.shp, .kml, .xlsx, .csv) found inside the zip.');
@@ -232,7 +268,8 @@ export const processFile = async (file: File): Promise<FeatureCollection> => {
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         const json = XLSX.utils.sheet_to_json(worksheet);
-        return convertXYToGeoJSON(json);
+        const geojson = convertXYToGeoJSON(json);
+        return formatDateColumns(geojson);
     }
 
     // 6. Direct GeoJSON/JSON

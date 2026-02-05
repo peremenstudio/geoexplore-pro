@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+﻿import React, { useState, useMemo, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { LayerManager } from './components/LayerManager';
 import { MapArea } from './components/MapArea';
@@ -7,6 +7,7 @@ import { DataExplorer } from './components/DataExplorer';
 import { ExploreView } from './components/ExploreView';
 import { AnalyzeView } from './components/AnalyzeView';
 import { LamasFileLoader } from './components/LamasFileLoader';
+import { SalesRecordsLoader } from './components/SalesRecordsLoader';
 import { processFile } from './utils/fileProcessor';
 import { fetchNominatimPlaces } from './utils/nominatim';
 import { fetchOverpassData } from './utils/overpass';
@@ -45,7 +46,7 @@ export default function App() {
   const [fetchQuery, setFetchQuery] = useState('');
   
   // New Fetch UI State
-  const [expandedCategory, setExpandedCategory] = useState<'urban' | 'national' | 'commercial' | null>(null);
+  const [expandedCategory, setExpandedCategory] = useState<'urban' | 'national' | 'sales' | 'commercial' | null>(null);
   const [telAvivLayers, setTelAvivLayers] = useState<GISLayerInfo[]>([]);
   const [telAvivQuery, setTelAvivQuery] = useState('');
   const [telAvivSuggestions, setTelAvivSuggestions] = useState<GISLayerInfo[]>([]);
@@ -905,7 +906,7 @@ export default function App() {
                     </h2>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                  <div className="flex-1 overflow-y-scroll p-4 pr-2 space-y-3">
                     {/* Urban Category */}
                     <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
                       <button
@@ -1390,6 +1391,29 @@ export default function App() {
                         </div>
                       )}
                     </div>
+
+                    {/* Sales record Category */}
+                    <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                      <button
+                        onClick={() => setExpandedCategory(expandedCategory === 'sales' ? null : 'sales')}
+                        className="w-full flex items-center justify-between p-3 hover:bg-slate-50 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+                            <BarChart3 size={16} className="text-blue-600" />
+                          </div>
+                          <span className="font-semibold text-slate-800">Sales record</span>
+                        </div>
+                        {expandedCategory === 'sales' ? <ChevronDown size={18} className="text-slate-400" /> : <ChevronRight size={18} className="text-slate-400" />}
+                      </button>
+
+                      {expandedCategory === 'sales' && (
+                        <div className="p-4 border-t border-slate-100 bg-slate-50">
+                          <SalesRecordsLoader onAddLayer={handleAddLayer} />
+                        </div>
+                      )}
+                    </div>
+
                   </div>
                 </div>
               )}
