@@ -73,6 +73,10 @@ export default function App() {
   const [analyzedLayerId, setAnalyzedLayerId] = useState<string | null>(null);
   const [filteredFeatures, setFilteredFeatures] = useState<Feature[] | null>(null);
 
+  // Polygon Selection State
+  const [selectedPolygon, setSelectedPolygon] = useState<{ layerId: string; featureIndex: number; feature: Feature } | null>(null);
+  const [showCopyConfirmation, setShowCopyConfirmation] = useState(false);
+
   // Computed Layers for Map
   const displayLayers = useMemo(() => {
     if (activeView !== 'analyze' || !analyzedLayerId || !filteredFeatures) {
@@ -130,10 +134,24 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Update Google Places usage stats
+    // Load Google Places usage stats
     const stats = getDailyUsageStats();
     setGooglePlacesUsage(stats);
   }, []);
+
+  useEffect(() => {
+    // Listen for copy polygon event from MapboxMap
+    const handleCopyPolygonEvent = () => {
+      if (selectedPolygon) {
+        setShowCopyConfirmation(true);
+      }
+    };
+    
+    window.addEventListener('copyPolygon', handleCopyPolygonEvent);
+    return () => {
+      window.removeEventListener('copyPolygon', handleCopyPolygonEvent);
+    };
+  }, [selectedPolygon]);
 
   useEffect(() => {
       if (activeView !== 'analyze') {
@@ -683,6 +701,50 @@ export default function App() {
       setZoomToLayerId(newLayer.id);
   };
 
+  const handlePolygonClick = (layerId: string, featureIndex: number, feature: Feature) => {
+    // If invalid indices, clear selection
+    if (layerId === '' || featureIndex === -1) {
+      setSelectedPolygon(null);
+      return;
+    }
+    setSelectedPolygon({ layerId, featureIndex, feature });
+  };
+
+  const handleCopyPolygon = () => {
+    if (!selectedPolygon) return;
+    
+    // Find the next boundary number
+    const boundaryLayers = layers.filter(l => l.name.startsWith('boundary'));
+    let maxNum = 0;
+    boundaryLayers.forEach(l => {
+      const match = l.name.match(/boundary\s*(\d+)/);
+      if (match) {
+        const num = parseInt(match[1]);
+        if (num > maxNum) maxNum = num;
+      }
+    });
+    const nextNum = (maxNum + 1).toString().padStart(2, '0');
+    
+    const newLayer: Layer = {
+      id: `boundary-${Date.now()}`,
+      name: `boundary ${nextNum}`,
+      visible: true,
+      data: {
+        type: 'FeatureCollection',
+        features: [selectedPolygon.feature]
+      },
+      color: getNextLayerColor(),
+      opacity: 0.7,
+      type: 'polygon',
+      grid: { show: false, showLabels: false, size: 1, opacity: 0.5 },
+      lastUpdated: Date.now()
+    };
+    
+    setLayers(prev => [...prev, newLayer]);
+    setShowCopyConfirmation(false);
+    setSelectedPolygon(null);
+  };
+
   const handleMergeLayers = (destinationId: string, sourceId: string): number => {
     const destLayer = layers.find(l => l.id === destinationId);
     const sourceLayer = layers.find(l => l.id === sourceId);
@@ -843,6 +905,8 @@ export default function App() {
                 googlePlacesLocation={googlePlacesLocation}
                 googlePlacesRadius={googlePlacesRadius}
                 activeView={activeView}
+                onPolygonClick={handlePolygonClick}
+                selectedPolygon={selectedPolygon}
               />
             )}
           </div>
@@ -1421,6 +1485,35 @@ export default function App() {
           )}
         </div>
       </div>
+
+      {/* Copy Polygon Confirmation Modal */}
+      {showCopyConfirmation && selectedPolygon && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[2000]">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-96">
+            <h2 className="text-lg font-bold text-slate-800 mb-4">Create a Copy?</h2>
+            <p className="text-sm text-slate-600 mb-6">
+              Are you want to create a copy of the element?
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={handleCopyPolygon}
+                className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors text-sm"
+              >
+                Yes, Copy
+              </button>
+              <button
+                onClick={() => {
+                  setShowCopyConfirmation(false);
+                  setSelectedPolygon(null);
+                }}
+                className="flex-1 px-4 py-2 bg-slate-200 text-slate-700 rounded-lg font-medium hover:bg-slate-300 transition-colors text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

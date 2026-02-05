@@ -4,7 +4,7 @@ import { MapContainer, TileLayer, GeoJSON, useMap, useMapEvents, Circle, Pane } 
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Layer } from '../types';
-import { Edit2, Save, X, Plus, Check } from 'lucide-react';
+import { Edit2, Save, X, Plus, Check, Pencil, Scissors } from 'lucide-react';
 import { Feature, GeoJsonProperties, FeatureCollection, Geometry } from 'geojson';
 
 interface MapAreaProps {
@@ -22,6 +22,8 @@ interface MapAreaProps {
   googlePlacesLocation?: { lat: number, lng: number } | null;
   googlePlacesRadius?: number;
   activeView?: string;
+  onPolygonClick?: (layerId: string, featureIndex: number, feature: Feature) => void;
+  selectedPolygon?: { layerId: string; featureIndex: number; feature: Feature } | null;
 }
 
 L.Icon.Default.mergeOptions({
@@ -42,8 +44,9 @@ const labelAnchorIcon = L.divIcon({
 const MapEvents: React.FC<{ 
   isPickingLocation?: boolean;
   isPickingGooglePlaces?: boolean; 
-  onMapClick?: (lat: number, lng: number) => void; 
-}> = ({ isPickingLocation, isPickingGooglePlaces, onMapClick }) => {
+  onMapClick?: (lat: number, lng: number) => void;
+  onPolygonClick?: (layerId: string, featureIndex: number, feature: Feature) => void;
+}> = ({ isPickingLocation, isPickingGooglePlaces, onMapClick, onPolygonClick }) => {
   const map = useMap();
   const isPickingAny = isPickingLocation || isPickingGooglePlaces;
 
@@ -60,8 +63,39 @@ const MapEvents: React.FC<{
       if (isPickingAny && onMapClick) {
         onMapClick(e.latlng.lat, e.latlng.lng);
       }
+      // Don't clear polygon selection here - let the polygon click handler manage it
+      // and only clear if clicking truly on empty space (handled by checking if target is the map container)
     },
   });
+
+  return null;
+};
+
+// Component to handle clearing polygon selection on background click
+const ClearSelectionOnMapClick: React.FC<{
+  onPolygonClick?: (layerId: string, featureIndex: number, feature: Feature) => void;
+}> = ({ onPolygonClick }) => {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!onPolygonClick) return;
+
+    const handleMapClick = (e: L.LeafletMouseEvent) => {
+      // Only clear if clicking on the map container itself (not on a feature)
+      const target = e.originalEvent?.target as HTMLElement;
+      if (target?.classList?.contains('leaflet-container') || 
+          target?.classList?.contains('leaflet-pane') ||
+          target?.closest('.leaflet-tile-pane')) {
+        onPolygonClick('', -1, {} as Feature);
+      }
+    };
+
+    map.on('click', handleMapClick);
+
+    return () => {
+      map.off('click', handleMapClick);
+    };
+  }, [map, onPolygonClick]);
 
   return null;
 };
@@ -483,7 +517,8 @@ const GridLayerManual: React.FC<{ layer: Layer }> = ({ layer }) => {
 const LayerRenderer: React.FC<{
     layer: Layer;
     onUpdateFeature?: (layerId: string, featureIndex: number, newProperties: GeoJsonProperties) => void;
-}> = ({ layer, onUpdateFeature }) => {
+    onPolygonClick?: (layerId: string, featureIndex: number, feature: Feature) => void;
+}> = ({ layer, onUpdateFeature, onPolygonClick }) => {
     
     // Calculate schema (union of all keys in this layer)
     const layerSchema = useMemo(() => {
@@ -565,6 +600,19 @@ const LayerRenderer: React.FC<{
                     });
                 }}
                 onEachFeature={(feature, l) => {
+                    const featureIndex = layer.data.features.indexOf(feature);
+                    const isPolygon = feature.geometry.type === 'Polygon' || feature.geometry.type === 'MultiPolygon';
+                    
+                    // Special handling for polygons - use click event instead of popup
+                    if (isPolygon && onPolygonClick) {
+                        l.on('click', (e) => {
+                            L.DomEvent.stopPropagation(e);
+                            onPolygonClick(layer.id, featureIndex, feature);
+                        });
+                        return;
+                    }
+                    
+                    // Regular popup handling for points/lines
                     // Lazy-load Popup Content
                     // Instead of creating a React Root for every feature immediately (which crashes with 10k+ points),
                     // we bind an empty div and mount React only when the popup opens.
@@ -633,7 +681,9 @@ export const MapArea: React.FC<MapAreaProps> = ({
     fetchRadius,
     googlePlacesLocation,
     googlePlacesRadius,
-    activeView
+    activeView,
+    onPolygonClick,
+    selectedPolygon
 }) => {
   
   // Combine real layers with a temporary virtual layer for draft features
@@ -667,7 +717,13 @@ export const MapArea: React.FC<MapAreaProps> = ({
         zoomControl={false}
         preferCanvas={false} // Disable canvas to ensure DOM classes/animations work on SVG paths
       >
-        <MapEvents isPickingLocation={isPickingLocation} isPickingGooglePlaces={isPickingGooglePlaces} onMapClick={onMapClick} />
+        <MapEvents 
+          isPickingLocation={isPickingLocation} 
+          isPickingGooglePlaces={isPickingGooglePlaces} 
+          onMapClick={onMapClick}
+          onPolygonClick={onPolygonClick}
+        />
+        <ClearSelectionOnMapClick onPolygonClick={onPolygonClick} />
         
         <TileLayer
             attribution='&copy; <a href="https://www.mapbox.com/">Mapbox</a>'
@@ -684,8 +740,33 @@ export const MapArea: React.FC<MapAreaProps> = ({
                 key={`${layer.id}-${layer.lastUpdated || 0}`} 
                 layer={layer} 
                 onUpdateFeature={onUpdateFeature}
+                onPolygonClick={onPolygonClick}
             />
         ))}
+
+        {/* Highlight Layer for Selected Polygon */}
+        {selectedPolygon && (() => {
+          const selectedLayer = layers.find(l => l.id === selectedPolygon.layerId);
+          if (selectedLayer && selectedLayer.data.features[selectedPolygon.featureIndex]) {
+            return (
+              <GeoJSON
+                key={`highlight-${selectedPolygon.layerId}-${selectedPolygon.featureIndex}`}
+                data={{
+                  type: 'FeatureCollection',
+                  features: [selectedPolygon.feature]
+                }}
+                style={() => ({
+                  color: '#ffff00',
+                  weight: 5,
+                  opacity: 1,
+                  fillColor: '#ffff00',
+                  fillOpacity: 0.3
+                })}
+              />
+            );
+          }
+          return null;
+        })()}
 
         {/* Visual Radius Circle for Fetch Mode */}
         {fetchLocation && fetchRadius && (
@@ -712,6 +793,144 @@ export const MapArea: React.FC<MapAreaProps> = ({
             onComplete={onZoomComplete} 
         />
       </MapContainer>
+
+      {/* Properties Popup for Selected Polygon - Using fixed positioning to appear above map */}
+      {selectedPolygon && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: '80px',
+            right: '420px',
+            backgroundColor: 'white',
+            padding: '16px',
+            borderRadius: '12px',
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.2)',
+            zIndex: 10000,
+            minWidth: '280px',
+            maxWidth: '380px',
+            border: '2px solid #e2e8f0'
+          }}
+        >
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            marginBottom: '8px',
+            paddingBottom: '8px',
+            borderBottom: '1px solid #e2e8f0'
+          }}>
+            <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#334155' }}>
+              Properties
+            </span>
+            <button
+              onClick={() => {
+                // Clear selection
+                if (onPolygonClick) {
+                  onPolygonClick('', -1, {} as Feature);
+                }
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '4px',
+                display: 'flex',
+                alignItems: 'center',
+                color: '#64748b'
+              }}
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '12px' }}>
+            {selectedPolygon.feature.properties ? (
+              <div style={{ maxHeight: '120px', overflowY: 'auto' }}>
+                {Object.entries(selectedPolygon.feature.properties).slice(0, 5).map(([key, value]) => (
+                  <div key={key} style={{ marginBottom: '4px' }}>
+                    <strong>{key}:</strong> {String(value)}
+                  </div>
+                ))}
+                {Object.keys(selectedPolygon.feature.properties).length > 5 && (
+                  <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>
+                    +{Object.keys(selectedPolygon.feature.properties).length - 5} more...
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>No properties</div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+                padding: '8px 12px',
+                backgroundColor: '#f1f5f9',
+                border: '1px solid #cbd5e1',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '13px',
+                fontWeight: '500',
+                color: '#475569',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#e2e8f0';
+                e.currentTarget.style.borderColor = '#94a3b8';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#f1f5f9';
+                e.currentTarget.style.borderColor = '#cbd5e1';
+              }}
+              title="Edit properties"
+            >
+              <Pencil size={14} />
+              Edit
+            </button>
+            <button
+              onClick={() => {
+                // Trigger the copy confirmation in App.tsx
+                const event = new CustomEvent('copyPolygon');
+                window.dispatchEvent(event);
+              }}
+              style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+                padding: '8px 12px',
+                backgroundColor: '#f1f5f9',
+                border: '1px solid #cbd5e1',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '13px',
+                fontWeight: '500',
+                color: '#475569',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#e2e8f0';
+                e.currentTarget.style.borderColor = '#94a3b8';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#f1f5f9';
+                e.currentTarget.style.borderColor = '#cbd5e1';
+              }}
+              title="Copy to new layer"
+            >
+              <Scissors size={14} />
+              Copy
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

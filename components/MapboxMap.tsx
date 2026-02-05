@@ -93,13 +93,6 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
       }
     });
 
-    // Handle map clicks
-    map.current.on('click', (e) => {
-      if ((isPickingLocation || isPickingGooglePlaces) && onMapClick) {
-        onMapClick(e.lngLat.lat, e.lngLat.lng);
-      }
-    });
-
     return () => {
       if (map.current) {
         if (draw.current) {
