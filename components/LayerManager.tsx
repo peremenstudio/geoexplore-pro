@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Layer } from '../types';
-import { Eye, EyeOff, Trash2, MapPin, ZoomIn, Grid, Plus, ChevronDown, ChevronUp, Check, X } from 'lucide-react';
+import { Eye, EyeOff, Trash2, MapPin, ZoomIn, Grid, Plus, ChevronDown, ChevronUp, Check, X, MapPinned } from 'lucide-react';
 
 interface LayerManagerProps {
   layers: Layer[];
@@ -9,6 +9,7 @@ interface LayerManagerProps {
   onStyleChange: (id: string, style: Partial<Layer>) => void;
   onZoom: (id: string) => void;
   onEdit: (id: string) => void;
+  onConvertToPoints?: (id: string) => void;
 }
 
 const LayerItem: React.FC<{ 
@@ -18,7 +19,8 @@ const LayerItem: React.FC<{
     onStyleChange: (id: string, style: Partial<Layer>) => void;
     onZoom: (id: string) => void;
     onEdit: (id: string) => void;
-}> = ({ layer, onToggle, onDelete, onStyleChange, onZoom, onEdit }) => {
+    onConvertToPoints?: (id: string) => void;
+}> = ({ layer, onToggle, onDelete, onStyleChange, onZoom, onEdit, onConvertToPoints }) => {
     const [isGridOpen, setIsGridOpen] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
 
@@ -171,12 +173,22 @@ const LayerItem: React.FC<{
             )}
             
             <div className="mt-3 px-1">
-                 <button 
-                    onClick={() => onEdit(layer.id)}
-                    className="flex items-center justify-center gap-1.5 w-full py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-semibold transition-colors border border-slate-200"
-                >
-                    <Plus size={12} /> Add Points
-                </button>
+                {layer.type === 'polygon' ? (
+                    <button 
+                        onClick={() => onConvertToPoints?.(layer.id)}
+                        className="flex items-center justify-center gap-1.5 w-full py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded text-xs font-semibold transition-colors border border-purple-200"
+                        title="Create centroid points from polygons"
+                    >
+                        <MapPinned size={12} /> Convert to Points
+                    </button>
+                ) : (
+                    <button 
+                        onClick={() => onEdit(layer.id)}
+                        className="flex items-center justify-center gap-1.5 w-full py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-semibold transition-colors border border-slate-200"
+                    >
+                        <Plus size={12} /> Add Points
+                    </button>
+                )}
             </div>
 
             <div className="mt-2 text-[10px] text-slate-400 pl-1 uppercase tracking-wider">
@@ -187,7 +199,7 @@ const LayerItem: React.FC<{
 }
 
 export const LayerManager: React.FC<LayerManagerProps> = ({ 
-    layers, onToggle, onDelete, onStyleChange, onZoom, onEdit
+    layers, onToggle, onDelete, onStyleChange, onZoom, onEdit, onConvertToPoints
 }) => {
   return (
     <div className="flex flex-col h-full">
@@ -213,6 +225,7 @@ export const LayerManager: React.FC<LayerManagerProps> = ({
                         onStyleChange={onStyleChange}
                         onZoom={onZoom}
                         onEdit={onEdit}
+                        onConvertToPoints={onConvertToPoints}
                     />
                 ))
             )}

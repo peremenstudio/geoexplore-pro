@@ -18,6 +18,7 @@ import { fetchJerusalemLayers, fetchJerusalemLayerData } from './utils/jerusalem
 import { fetchHaifaLayers, fetchHaifaLayerData } from './utils/haifaGis';
 import { getNextLayerColor } from './utils/layerColors';
 import { fetchNearbyPlaces, placesToGeoJSON, getDailyUsageStats, getCategoryDisplay, DailyUsageStats } from './utils/googlePlaces';
+import { detectLayerType } from './utils/detectLayerType';
 import { Layer, AppView } from './types';
 import { Menu, Map as MapIcon, Database, Layers, Compass, BarChart3, Loader2, Box, Download, Globe, Home, Crosshair, Search, Info, Building, Flag, ShoppingCart, ChevronDown, ChevronRight } from 'lucide-react';
 import { Feature, GeoJsonProperties } from 'geojson';
@@ -167,6 +168,7 @@ export default function App() {
     setIsLoading(true);
     try {
       const geojson = await processFile(file);
+      const layerType = detectLayerType(geojson);
       const newLayer: Layer = {
         id: `layer-${Date.now()}`,
         name: nameOverride || file.name.split('.')[0],
@@ -174,7 +176,7 @@ export default function App() {
         data: geojson,
         color: getNextLayerColor(),
         opacity: 0.7,
-        type: 'point',
+        type: layerType,
         grid: {
             show: false,
             showLabels: false,
@@ -217,6 +219,65 @@ export default function App() {
     if (window.innerWidth < 1024) {
       setIsSidebarOpen(false);
     }
+  };
+
+  const handleConvertToPoints = (id: string) => {
+    const layer = layers.find(l => l.id === id);
+    if (!layer || layer.type !== 'polygon') return;
+
+    // Calculate centroids for each polygon
+    const centroidFeatures: Feature[] = layer.data.features.map(feature => {
+      let centroid: [number, number];
+      
+      if (feature.geometry.type === 'Polygon') {
+        // Calculate centroid of polygon
+        const coords = feature.geometry.coordinates[0]; // outer ring
+        let cx = 0, cy = 0;
+        for (const coord of coords) {
+          cx += coord[0];
+          cy += coord[1];
+        }
+        centroid = [cx / coords.length, cy / coords.length];
+      } else if (feature.geometry.type === 'MultiPolygon') {
+        // For MultiPolygon, take centroid of first polygon
+        const coords = feature.geometry.coordinates[0][0]; // first polygon, outer ring
+        let cx = 0, cy = 0;
+        for (const coord of coords) {
+          cx += coord[0];
+          cy += coord[1];
+        }
+        centroid = [cx / coords.length, cy / coords.length];
+      } else {
+        return null;
+      }
+
+      return {
+        type: 'Feature',
+        geometry: {
+          type: 'Point',
+          coordinates: centroid
+        },
+        properties: { ...feature.properties } // Copy all properties
+      } as Feature;
+    }).filter(f => f !== null) as Feature[];
+
+    // Create new layer with centroids
+    const newLayer: Layer = {
+      id: `centroids-${Date.now()}`,
+      name: `${layer.name} - Centroids`,
+      visible: true,
+      data: {
+        type: 'FeatureCollection',
+        features: centroidFeatures
+      },
+      color: layer.color,
+      opacity: 0.8,
+      type: 'point',
+      grid: { show: false, showLabels: false, size: 1, opacity: 0.5 },
+      lastUpdated: Date.now()
+    };
+
+    setLayers(prev => [...prev, newLayer]);
   };
 
   const handleCancelPickLocation = () => {
@@ -266,17 +327,16 @@ export default function App() {
             return { ...f, properties: props };
         });
 
+        const geojson = { type: 'FeatureCollection' as const, features: cleanFeatures };
+        const layerType = detectLayerType(geojson);
         const newLayer: Layer = {
             id: `layer-${Date.now()}`,
             name: pendingLayerName,
             visible: true,
-            data: {
-            type: 'FeatureCollection',
-            features: cleanFeatures
-            },
+            data: geojson,
             color: getNextLayerColor(),
             opacity: 1,
-            type: 'point',
+            type: layerType,
             grid: {
                 show: false,
                 showLabels: false,
@@ -362,14 +422,16 @@ export default function App() {
         if (features.length === 0) {
             alert(`No places found for "${config.query}". Try: restaurant, cafe, bank, hospital, park, etc.`);
         } else {
+            const geojson = { type: 'FeatureCollection' as const, features };
+            const layerType = detectLayerType(geojson);
             const newLayer: Layer = {
                 id: `fetched-${Date.now()}`,
                 name: config.name || `${config.query} (OSM)`,
                 visible: true,
-                data: { type: 'FeatureCollection', features },
+                data: geojson,
                 color: getNextLayerColor(),
                 opacity: 1,
-                type: 'point',
+                type: layerType,
                 grid: { show: false, showLabels: false, size: 0.5, opacity: 0.5 },
                 lastUpdated: Date.now()
             };
@@ -395,14 +457,16 @@ export default function App() {
         if (features.length === 0) {
             alert(`לא נמצאו עסקאות עבור "${city}". נסה להזין שם עיר מדויק בעברית.`);
         } else {
+            const geojson = { type: 'FeatureCollection' as const, features };
+            const layerType = detectLayerType(geojson);
             const newLayer: Layer = {
                 id: `nadlan-${Date.now()}`,
                 name: `עסקאות: ${city}`,
                 visible: true,
-                data: { type: 'FeatureCollection', features },
+                data: geojson,
                 color: getNextLayerColor(),
                 opacity: 1,
-                type: 'point',
+                type: layerType,
                 grid: { show: false, showLabels: false, size: 0.5, opacity: 0.5 },
                 lastUpdated: Date.now()
             };
@@ -442,14 +506,16 @@ export default function App() {
         return;
       }
 
+      const geojson = { type: 'FeatureCollection' as const, features };
+      const layerType = detectLayerType(geojson);
       const newLayer: Layer = {
         id: `tel-aviv-${Date.now()}`,
         name: layerName,
         visible: true,
-        data: { type: 'FeatureCollection', features },
+        data: geojson,
         color: getNextLayerColor(),
         opacity: 0.7,
-        type: 'point',
+        type: layerType,
         grid: { show: false, showLabels: false, size: 0.5, opacity: 0.5 },
         lastUpdated: Date.now()
       };
@@ -487,14 +553,16 @@ export default function App() {
         return;
       }
 
+      const geojson = { type: 'FeatureCollection' as const, features };
+      const layerType = detectLayerType(geojson);
       const newLayer: Layer = {
         id: `jerusalem-${Date.now()}`,
         name: layerName,
         visible: true,
-        data: { type: 'FeatureCollection', features },
+        data: geojson,
         color: getNextLayerColor(),
         opacity: 0.7,
-        type: 'point',
+        type: layerType,
         grid: { show: false, showLabels: false, size: 0.5, opacity: 0.5 },
         lastUpdated: Date.now()
       };
@@ -537,14 +605,16 @@ export default function App() {
         return;
       }
 
+      const geojson = { type: 'FeatureCollection' as const, features };
+      const layerType = detectLayerType(geojson);
       const newLayer: Layer = {
         id: `haifa-${Date.now()}`,
         name: layer.name,
         visible: true,
-        data: { type: 'FeatureCollection', features },
+        data: geojson,
         color: getNextLayerColor(),
         opacity: 0.7,
-        type: 'point',
+        type: layerType,
         grid: { show: false, showLabels: false, size: 0.5, opacity: 0.5 },
         lastUpdated: Date.now()
       };
@@ -586,14 +656,16 @@ export default function App() {
       }
 
       const features = placesToGeoJSON(places);
+      const geojson = { type: 'FeatureCollection' as const, features };
+      const layerType = detectLayerType(geojson);
       const newLayer: Layer = {
         id: `places-${Date.now()}`,
         name: googlePlacesLayerName || `${getCategoryDisplay(googlePlacesCategory)} (${places.length})`,
         visible: true,
-        data: { type: 'FeatureCollection', features },
+        data: geojson,
         color: getNextLayerColor(),
         opacity: 0.7,
-        type: 'point',
+        type: layerType,
         grid: { show: false, showLabels: false, size: 0.5, opacity: 0.5 },
         lastUpdated: Date.now()
       };
@@ -626,14 +698,16 @@ export default function App() {
         if (features.length === 0) {
             alert(`No data found for ${layerName}`);
         } else {
+            const geojson = { type: 'FeatureCollection' as const, features };
+            const layerType = detectLayerType(geojson);
             const newLayer: Layer = {
                 id: `tlv-${layerType}-${Date.now()}`,
                 name: layerName,
                 visible: true,
-                data: { type: 'FeatureCollection', features },
+                data: geojson,
               color: getNextLayerColor(),
                 opacity: 0.7,
-                type: 'polygon',
+                type: layerType,
                 grid: { show: false, showLabels: false, size: 0.5, opacity: 0.5 },
                 lastUpdated: Date.now()
             };
@@ -959,6 +1033,7 @@ export default function App() {
                   onStyleChange={updateLayerStyle}
                   onZoom={setZoomToLayerId}
                   onEdit={handleStartEditLayer}
+                  onConvertToPoints={handleConvertToPoints}
                 />
               )}
               {rightPanelMode === 'fetch' && (
