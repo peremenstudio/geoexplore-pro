@@ -10,7 +10,11 @@ import Box from '@mui/material/Box';
 
 interface AnalyzeViewProps {
     layers: Layer[];
+    layerFilters: Record<string, Record<string, FilterValue>>;
+    layerSelectedAttributes: Record<string, string[]>;
     onFilterChange: (layerId: string | null, features: Feature[] | null) => void;
+    onFiltersUpdate: (layerId: string, filters: Record<string, FilterValue>) => void;
+    onSelectedAttributesUpdate: (layerId: string, attributes: string[]) => void;
     onAddLayer?: (layer: Layer) => void;
 }
 
@@ -481,12 +485,34 @@ const AttributeWidget: React.FC<{
     );
 };
 
-export const AnalyzeView: React.FC<AnalyzeViewProps> = ({ layers, onFilterChange, onAddLayer }) => {
+export const AnalyzeView: React.FC<AnalyzeViewProps> = ({ 
+    layers, 
+    layerFilters, 
+    layerSelectedAttributes, 
+    onFilterChange, 
+    onFiltersUpdate,
+    onSelectedAttributesUpdate,
+    onAddLayer 
+}) => {
     const [selectedLayerId, setSelectedLayerId] = useState<string>('');
-    const [selectedAttributes, setSelectedAttributes] = useState<string[]>([]);
     
-    // Filter State: supports categories (string[]) or ranges ({min, max})
-    const [filters, setFilters] = useState<Record<string, FilterValue>>({});
+    // Get current layer's filters and attributes from parent state
+    const filters = selectedLayerId ? (layerFilters[selectedLayerId] || {}) : {};
+    const selectedAttributes = selectedLayerId ? (layerSelectedAttributes[selectedLayerId] || []) : [];
+    
+    // Helper to update filters
+    const setFilters = (newFilters: Record<string, FilterValue> | ((prev: Record<string, FilterValue>) => Record<string, FilterValue>)) => {
+        if (!selectedLayerId) return;
+        const resolvedFilters = typeof newFilters === 'function' ? newFilters(filters) : newFilters;
+        onFiltersUpdate(selectedLayerId, resolvedFilters);
+    };
+    
+    // Helper to update selected attributes
+    const setSelectedAttributes = (newAttributes: string[] | ((prev: string[]) => string[])) => {
+        if (!selectedLayerId) return;
+        const resolvedAttributes = typeof newAttributes === 'function' ? newAttributes(selectedAttributes) : newAttributes;
+        onSelectedAttributesUpdate(selectedLayerId, resolvedAttributes);
+    };
     
     // Spatial Analysis State
     const [isGeneratingIsochrone, setIsGeneratingIsochrone] = useState(false);
@@ -502,11 +528,9 @@ export const AnalyzeView: React.FC<AnalyzeViewProps> = ({ layers, onFilterChange
         }
     }, [layers, selectedLayerId]);
 
-    // Reset state when layer changes
+    // Auto-select attributes only if not already set for this layer
     useEffect(() => {
-        setFilters({});
-        setSelectedAttributes([]);
-        if (selectedLayer) {
+        if (selectedLayer && selectedAttributes.length === 0) {
              // Auto-select up to 4 relevant columns (with at least 3 different values)
             const features = selectedLayer.data.features;
             if (features.length > 0 && features[0]?.properties) {
@@ -523,7 +547,7 @@ export const AnalyzeView: React.FC<AnalyzeViewProps> = ({ layers, onFilterChange
                 setSelectedAttributes(relevantKeys.slice(0, 4));
             }
         }
-    }, [selectedLayerId]);
+    }, [selectedLayerId, selectedLayer, selectedAttributes.length]);
 
     // Calculate Filtered Features (for cross-filtering across all widgets)
     const filteredFeatures = useMemo(() => {

@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo, useEffect } from 'react';
+﻿import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { LayerManager } from './components/LayerManager';
 import { MapArea } from './components/MapArea';
@@ -73,14 +73,19 @@ export default function App() {
   // Analyze State
   const [analyzedLayerId, setAnalyzedLayerId] = useState<string | null>(null);
   const [filteredFeatures, setFilteredFeatures] = useState<Feature[] | null>(null);
+  // Remember layer visibility state when in analyze view
+  const [savedAnalyzeLayerVisibility, setSavedAnalyzeLayerVisibility] = useState<Record<string, boolean>>({});
+  // Persist filters and selected attributes per layer
+  const [layerFilters, setLayerFilters] = useState<Record<string, Record<string, string[] | { min: number; max: number }>>>({});
+  const [layerSelectedAttributes, setLayerSelectedAttributes] = useState<Record<string, string[]>>({});
 
   // Polygon Selection State
   const [selectedPolygon, setSelectedPolygon] = useState<{ layerId: string; featureIndex: number; feature: Feature } | null>(null);
   const [showCopyConfirmation, setShowCopyConfirmation] = useState(false);
 
-  // Computed Layers for Map
+  // Computed Layers for Map - apply filters to all views
   const displayLayers = useMemo(() => {
-    if (activeView !== 'analyze' || !analyzedLayerId || !filteredFeatures) {
+    if (!analyzedLayerId || !filteredFeatures) {
       return layers;
     }
     return layers.map(l => {
@@ -93,7 +98,7 @@ export default function App() {
       }
       return l;
     });
-  }, [layers, activeView, analyzedLayerId, filteredFeatures]);
+  }, [layers, analyzedLayerId, filteredFeatures]);
 
   useEffect(() => {
     // Load Tel Aviv layers on mount
@@ -154,11 +159,39 @@ export default function App() {
     };
   }, [selectedPolygon]);
 
+  // Track previous activeView to detect tab changes
+  const prevActiveViewRef = useRef<AppView>(activeView);
+
   useEffect(() => {
-      if (activeView !== 'analyze') {
-          setAnalyzedLayerId(null);
-          setFilteredFeatures(null);
+      const prevView = prevActiveViewRef.current;
+      
+      // Entering analyze view - restore saved layer visibility
+      if (activeView === 'analyze' && prevView !== 'analyze') {
+          const savedState = savedAnalyzeLayerVisibility;
+          if (Object.keys(savedState).length > 0) {
+              setLayers(prev => prev.map(layer => ({
+                  ...layer,
+                  visible: savedState[layer.id] ?? layer.visible
+              })));
+          }
       }
+      
+      // Leaving analyze view - save current visibility (but keep filters intact)
+      if (prevView === 'analyze' && activeView !== 'analyze') {
+          setLayers(prev => {
+              const visibilityState: Record<string, boolean> = {};
+              prev.forEach(layer => {
+                  visibilityState[layer.id] = layer.visible;
+              });
+              setSavedAnalyzeLayerVisibility(visibilityState);
+              return prev; // Return unchanged
+          });
+          // Don't clear analyzedLayerId and filteredFeatures - keep filters active
+      }
+      
+      // Update ref to current view
+      prevActiveViewRef.current = activeView;
+      // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeView]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, nameOverride: string) => {
@@ -989,9 +1022,23 @@ export default function App() {
              <div className="absolute top-0 right-0 bottom-0 w-1/2 bg-slate-50 z-20">
                  <AnalyzeView 
                     layers={layers}
+                    layerFilters={layerFilters}
+                    layerSelectedAttributes={layerSelectedAttributes}
                     onFilterChange={(layerId, features) => {
                         setAnalyzedLayerId(layerId);
                         setFilteredFeatures(features);
+                    }}
+                    onFiltersUpdate={(layerId, filters) => {
+                        setLayerFilters(prev => ({
+                            ...prev,
+                            [layerId]: filters
+                        }));
+                    }}
+                    onSelectedAttributesUpdate={(layerId, attributes) => {
+                        setLayerSelectedAttributes(prev => ({
+                            ...prev,
+                            [layerId]: attributes
+                        }));
                     }}
                     onAddLayer={(newLayer) => {
                         setLayers(prev => [...prev, newLayer]);
