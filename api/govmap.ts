@@ -75,47 +75,85 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         return;
       }
 
-      // Build GovMap API query URL
-      // Using WFS (Web Feature Service) to get GeoJSON data
-      const params = new URLSearchParams({
-        SERVICE: 'WFS',
-        VERSION: '2.0.0',
-        REQUEST: 'GetFeature',
-        TYPENAME: `gm:layer_${layerId}`,
-        OUTPUTFORMAT: 'application/json',
-        SRSNAME: 'EPSG:4326', // WGS84 (lat/lng)
-        token: GOVMAP_API_TOKEN
-      });
+      // Try multiple GovMap API endpoints
+      
+      // Method 1: ArcGIS REST API format (most common for Israeli government services)
+      const arcgisUrl = `${GOVMAP_BASE_URL}/arcgis/rest/services/Layers/layer_${layerId}/MapServer/0/query?where=1%3D1&outFields=*&f=geojson&token=${GOVMAP_API_TOKEN}`;
+      
+      console.log('[GovMap API] Trying ArcGIS REST format...');
 
-      // Add bounds filter if provided
-      if (bounds && Array.isArray(bounds) && bounds.length === 4) {
-        const bbox = `${bounds[0]},${bounds[1]},${bounds[2]},${bounds[3]},EPSG:4326`;
-        params.append('BBOX', bbox);
-      }
-
-      const wfsUrl = `${GOVMAP_BASE_URL}/wfs?${params.toString()}`;
-
-      console.log('[GovMap API] Fetching:', wfsUrl.replace(GOVMAP_API_TOKEN, '***'));
-
-      const response = await fetch(wfsUrl, {
+      let response = await fetch(arcgisUrl, {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
         }
       });
 
+      // If ArcGIS format fails, try WFS format
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('[GovMap API] Error:', response.status, errorText);
+        console.log('[GovMap API] ArcGIS format failed, trying WFS...');
+        
+        const params = new URLSearchParams({
+          SERVICE: 'WFS',
+          VERSION: '2.0.0',
+          REQUEST: 'GetFeature',
+          TYPENAME: `layer_${layerId}`,
+          OUTPUTFORMAT: 'application/json',
+          SRSNAME: 'EPSG:4326',
+          token: GOVMAP_API_TOKEN
+        });
+
+        const wfsUrl = `${GOVMAP_BASE_URL}/wfs?${params.toString()}`;
+        response = await fetch(wfsUrl, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+          }
+        });
+      }
+
+      // Check response
+      const contentType = response.headers.get('content-type');
+      const responseText = await response.text();
+
+      console.log('[GovMap API] Response status:', response.status);
+      console.log('[GovMap API] Content-Type:', contentType);
+      console.log('[GovMap API] Response (first 500 chars):', responseText.substring(0, 500));
+
+      if (!response.ok) {
+        console.error('[GovMap API] Error:', response.status, responseText);
         sendJson(res, response.status, { 
           error: 'Failed to fetch from GovMap',
           status: response.status,
-          details: errorText
+          details: responseText.substring(0, 1000),
+          contentType: contentType
         });
         return;
       }
 
-      const data = await response.json();
+      // Check if response is HTML (error page)
+      if (contentType?.includes('text/html') || responseText.trim().startsWith('<!DOCTYPE') || responseText.trim().startsWith('<html')) {
+        console.error('[GovMap API] Received HTML instead of JSON');
+        sendJson(res, 500, { 
+          error: 'GovMap returned HTML instead of JSON',
+          message: 'The API endpoint or authentication may be incorrect',
+          details: responseText.substring(0, 1000)
+        });
+        return;
+      }
+
+      // Try to parse JSON
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('[GovMap API] JSON parse error:', parseError);
+        sendJson(res, 500, { 
+          error: 'Invalid JSON response from GovMap',
+          details: responseText.substring(0, 1000)
+        });
+        return;
+      }
       
       // Convert to standard GeoJSON if needed
       const geojson = {
