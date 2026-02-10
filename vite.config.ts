@@ -22,8 +22,7 @@ export default defineConfig(({ mode }) => {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
         'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
         'process.env.MAPBOX_TOKEN': JSON.stringify(env.MAPBOX_TOKEN),
-        'process.env.MAPBOX_STYLE': JSON.stringify(env.MAPBOX_STYLE),
-        'process.env.GOVMAP_API_TOKEN': JSON.stringify(env.GOVMAP_API_TOKEN)
+        'process.env.MAPBOX_STYLE': JSON.stringify(env.MAPBOX_STYLE)
       },
       resolve: {
         alias: {

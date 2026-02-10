@@ -826,7 +826,7 @@ export default function App() {
       
       if (result.success) {
         showAlert('success', 'GovMap API Connected', 
-          `${result.message}\n\nAPI URL: ${result.data?.apiUrl}\nToken: ${result.data?.token}\nScript Loaded: ${result.data?.scriptLoaded ? 'Yes' : 'No'}`);
+          `${result.message}\n\nProxy URL: ${result.data?.proxyUrl}\nToken: ${result.data?.tokenConfigured ? 'Configured ✓' : 'Not configured ✗'}`);
       } else {
         showAlert('error', 'GovMap Connection Failed', result.message);
       }
@@ -847,8 +847,8 @@ export default function App() {
         return;
       }
 
-      // Fetch winery layer
-      const result = await fetchGovMapLayer('LAYER_YEKEV');
+      // Fetch winery layer (layer ID 383)
+      const result = await fetchGovMapLayer(383);
       
       if (result.success && result.data) {
         // Add to map as a new layer

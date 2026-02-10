@@ -1,8 +1,7 @@
-// GovMap API Integration
+// GovMap API Integration (via server-side proxy)
 // API Documentation: https://api.govmap.gov.il/docs/intro/javascript-functions
 
-const GOVMAP_API_TOKEN = process.env.GOVMAP_API_TOKEN || '';
-const GOVMAP_API_URL = 'https://www.govmap.gov.il/govmap/api/govmap.api.js';
+const GOVMAP_PROXY_URL = '/api/govmap';
 
 export interface GovMapSearchResult {
   X: number;
@@ -13,54 +12,34 @@ export interface GovMapSearchResult {
 }
 
 /**
- * Test GovMap API connection
+ * Test GovMap API connection via proxy
  */
 export const testGovMapConnection = async (): Promise<{ success: boolean; message: string; data?: any }> => {
   try {
-    // Load GovMap API script dynamically
-    const scriptId = 'govmap-api-script';
-    
-    // Check if script already loaded
-    if (!document.getElementById(scriptId)) {
-      return new Promise((resolve) => {
-        const script = document.createElement('script');
-        script.id = scriptId;
-        script.src = GOVMAP_API_URL;
-        script.async = true;
-        
-        script.onload = () => {
-          // Script loaded successfully
-          resolve({
-            success: true,
-            message: `GovMap API script loaded successfully. Token: ${GOVMAP_API_TOKEN ? 'configured' : 'missing'}`,
-            data: {
-              token: GOVMAP_API_TOKEN ? '***masked***' : 'not configured',
-              apiUrl: GOVMAP_API_URL,
-              scriptLoaded: true
-            }
-          });
-        };
-        
-        script.onerror = () => {
-          resolve({
-            success: false,
-            message: 'Failed to load GovMap API script',
-            data: { apiUrl: GOVMAP_API_URL }
-          });
-        };
-        
-        document.head.appendChild(script);
-      });
+    const response = await fetch(GOVMAP_PROXY_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ action: 'test' })
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      return {
+        success: false,
+        message: result.error || 'Failed to connect to GovMap API',
+        data: result
+      };
     }
-    
-    // Script already loaded
+
     return {
       success: true,
-      message: 'GovMap API script already loaded',
+      message: 'GovMap API proxy connected successfully',
       data: {
-        token: GOVMAP_API_TOKEN ? '***masked***' : 'not configured',
-        apiUrl: GOVMAP_API_URL,
-        scriptLoaded: true
+        tokenConfigured: result.tokenConfigured,
+        proxyUrl: GOVMAP_PROXY_URL
       }
     };
   } catch (error: any) {
@@ -77,19 +56,9 @@ export const testGovMapConnection = async (): Promise<{ success: boolean; messag
  * Call this after the API script is loaded
  */
 export const initGovMapAPI = (): boolean => {
-  try {
-    // Check if GovMap API is available in window
-    if (typeof (window as any).govm !== 'undefined') {
-      console.log('✅ GovMap API is available');
-      return true;
-    } else {
-      console.warn('⚠️ GovMap API not found in window object');
-      return false;
-    }
-  } catch (error) {
-    console.error('❌ Error initializing GovMap API:', error);
-    return false;
-  }
+  // Not needed anymore - using server-side proxy
+  console.log('✅ GovMap API proxy ready');
+  return true;
 };
 
 /**
@@ -97,93 +66,53 @@ export const initGovMapAPI = (): boolean => {
  * @param query Search query string
  */
 export const searchGovMapLocation = async (query: string): Promise<GovMapSearchResult[]> => {
-  return new Promise((resolve, reject) => {
-    try {
-      const govmap = (window as any).govm;
-      
-      if (!govmap) {
-        reject(new Error('GovMap API not initialized. Call testGovMapConnection first.'));
-        return;
-      }
-
-      // Use GovMap search API
-      // This is a placeholder - actual implementation depends on GovMap API documentation
-      govmap.search(query, {
-        token: GOVMAP_API_TOKEN,
-        callback: (results: GovMapSearchResult[]) => {
-          resolve(results);
-        },
-        error: (error: any) => {
-          reject(new Error(`GovMap search error: ${error}`));
-        }
-      });
-    } catch (error: any) {
-      reject(new Error(`Error searching GovMap: ${error.message}`));
-    }
-  });
+  // TODO: Implement search via proxy if needed
+  throw new Error('Search not yet implemented. Use fetchGovMapLayer for layer data.');
 };
 
 /**
- * Fetch GovMap layer data and convert to GeoJSON
- * @param layerName Name of the GovMap layer (e.g., 'LAYER_YEKEV' for winery)
- * @param bounds Optional bounds to limit the query [minX, minY, maxX, maxY]
+ * Fetch GovMap layer data via proxy and convert to GeoJSON
+ * @param layerId Numeric ID of the GovMap layer (e.g., 383 for wineries)
+ * @param bounds Optional bounds to limit the query [minX, minY, maxX, maxY] in EPSG:4326
  */
 export const fetchGovMapLayer = async (
-  layerName: string,
+  layerId: number,
   bounds?: [number, number, number, number]
 ): Promise<{ success: boolean; data?: any; message: string }> => {
   try {
-    // Ensure API is loaded
-    const govmap = (window as any).govm;
-    
-    if (!govmap) {
-      throw new Error('GovMap API not initialized. Call testGovMapConnection first.');
+    const response = await fetch(GOVMAP_PROXY_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ 
+        action: 'fetchLayer',
+        layerId,
+        bounds
+      })
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      return {
+        success: false,
+        message: result.error || result.message || 'Failed to fetch layer from GovMap'
+      };
     }
 
-    // Use GovMap getLayerData API
-    return new Promise((resolve) => {
-      const options: any = {
-        token: GOVMAP_API_TOKEN,
-        layerName: layerName,
+    if (result.success && result.data) {
+      return {
+        success: true,
+        data: result.data,
+        message: `Successfully fetched ${result.featureCount || 0} features from layer ${layerId}`
       };
+    }
 
-      // Add bounds if provided
-      if (bounds) {
-        options.extent = {
-          xmin: bounds[0],
-          ymin: bounds[1],
-          xmax: bounds[2],
-          ymax: bounds[3]
-        };
-      }
-
-      // Call GovMap API to get layer data
-      govmap.getLayerData(options, {
-        success: (data: any) => {
-          // Convert to GeoJSON
-          const geojson = {
-            type: 'FeatureCollection',
-            features: data.features?.map((feature: any) => ({
-              type: 'Feature',
-              geometry: feature.geometry,
-              properties: feature.attributes || {}
-            })) || []
-          };
-
-          resolve({
-            success: true,
-            data: geojson,
-            message: `Successfully fetched ${geojson.features.length} features from ${layerName}`
-          });
-        },
-        error: (error: any) => {
-          resolve({
-            success: false,
-            message: `Failed to fetch layer ${layerName}: ${JSON.stringify(error)}`
-          });
-        }
-      });
-    });
+    return {
+      success: false,
+      message: 'Invalid response from GovMap API'
+    };
   } catch (error: any) {
     return {
       success: false,

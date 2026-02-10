@@ -18,7 +18,7 @@ function loadEnv(): Record<string, string> {
           const cleanKey = key.trim();
           const cleanValue = valueParts.join('=').trim();
           env[cleanKey] = cleanValue;
-          if (cleanKey === 'GOOGLE_PLACES_API') {
+          if (cleanKey === 'GOOGLE_PLACES_API' || cleanKey === 'GOVMAP_API_TOKEN') {
             console.log(`✓ Loaded ${cleanKey}: ${cleanValue.substring(0, 20)}...`);
           }
         }
@@ -34,9 +34,11 @@ function loadEnv(): Record<string, string> {
 
 const env = loadEnv();
 const GOOGLE_PLACES_API_KEY = env.GOOGLE_PLACES_API || '';
+const GOVMAP_API_TOKEN = env.GOVMAP_API_TOKEN || '';
 
 const PLACES_API_URL = 'https://maps.googleapis.com/maps/api/place/nearbysearch/json';
 const DETAILS_API_URL = 'https://maps.googleapis.com/maps/api/place/details/json';
+const GOVMAP_BASE_URL = 'https://www.govmap.gov.il';
 
 function sendJson(res: http.ServerResponse, statusCode: number, data: any) {
   res.statusCode = statusCode;
@@ -77,6 +79,18 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Route to appropriate handler based on URL
+  const url = req.url || '';
+  
+  if (url.includes('govmap') || url === '/govmap') {
+    await handleGovMapRequest(req, res);
+  } else {
+    await handleGooglePlacesRequest(req, res);
+  }
+});
+
+// Google Places request handler
+async function handleGooglePlacesRequest(req: http.IncomingMessage, res: http.ServerResponse) {
   if (!GOOGLE_PLACES_API_KEY) {
     sendJson(res, 500, { error: 'Google Places API key not configured' });
     return;
@@ -145,11 +159,109 @@ const server = http.createServer(async (req, res) => {
     console.error('[Google Places] Server error:', error);
     sendJson(res, 500, { error: error.message || 'Internal server error' });
   }
+}
+
+// GovMap request handler
+async function handleGovMapRequest(req: http.IncomingMessage, res: http.ServerResponse) {
+  try {
+    const body = await parseBody(req);
+    const { action, layerId, bounds } = body;
+
+    if (!GOVMAP_API_TOKEN) {
+      sendJson(res, 500, { 
+        error: 'GovMap API token not configured',
+        message: 'Please set GOVMAP_API_TOKEN in .env.local'
+      });
+      return;
+    }
+
+    // Test connection
+    if (action === 'test') {
+      sendJson(res, 200, { 
+        success: true,
+        message: 'GovMap API proxy is working',
+        tokenConfigured: true
+      });
+      return;
+    }
+
+    // Fetch layer data
+    if (action === 'fetchLayer') {
+      if (!layerId) {
+        sendJson(res, 400, { error: 'Layer ID is required' });
+        return;
+      }
+
+      // Build GovMap WFS query URL
+      const params = new URLSearchParams({
+        SERVICE: 'WFS',
+        VERSION: '2.0.0',
+        REQUEST: 'GetFeature',
+        TYPENAME: `gm:layer_${layerId}`,
+        OUTPUTFORMAT: 'application/json',
+        SRSNAME: 'EPSG:4326',
+        token: GOVMAP_API_TOKEN
+      });
+
+      // Add bounds filter if provided
+      if (bounds && Array.isArray(bounds) && bounds.length === 4) {
+        const bbox = `${bounds[0]},${bounds[1]},${bounds[2]},${bounds[3]},EPSG:4326`;
+        params.append('BBOX', bbox);
+      }
+
+      const wfsUrl = `${GOVMAP_BASE_URL}/wfs?${params.toString()}`;
+      console.log(`[GovMap] Fetching layer ${layerId}...`);
+
+      const response = await fetch(wfsUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[GovMap] Error: ${response.status}`, errorText);
+        sendJson(res, response.status, { 
+          error: 'Failed to fetch from GovMap',
+          status: response.status,
+          details: errorText
+        });
+        return;
+      }
+
+      const data = await response.json();
+      
+      // Convert to standard GeoJSON if needed
+      const geojson = {
+        type: 'FeatureCollection',
+        features: data.features || []
+      };
+
+      console.log(`[GovMap] Success: Fetched ${geojson.features.length} features from layer ${layerId}`);
+
+      sendJson(res, 200, {
+        success: true,
+        data: geojson,
+        featureCount: geojson.features.length
+      });
+      return;
+    }
+
+    sendJson(res, 400, { error: 'Invalid action. Use "test" or "fetchLayer"' });
+  } catch (error: any) {
+    console.error('[GovMap] Error:', error);
+    sendJson(res, 500, { 
+      error: 'Internal server error',
+      message: error.message 
+    });
+  }
 });
 
 const PORT = 3001;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n✅ Google Places API proxy running on http://localhost:${PORT}`);
+  console.log(`\n✅ API Proxy Server running on http://localhost:${PORT}`);
   console.log(`📍 Make sure Vite is also running: npm run dev`);
-  console.log(`🔑 API Key loaded: ${GOOGLE_PLACES_API_KEY ? '✓ Yes' : '✗ No (check .env.local)'}\n`);
+  console.log(`🔑 Google Places API Key: ${GOOGLE_PLACES_API_KEY ? '✓ Yes' : '✗ No (check .env.local)'}`);
+  console.log(`🔑 GovMap API Token: ${GOVMAP_API_TOKEN ? '✓ Yes' : '✗ No (check .env.local)'}\n`);
 });
