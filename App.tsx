@@ -19,7 +19,7 @@ import { fetchHaifaLayers, fetchHaifaLayerData } from './utils/haifaGis';
 import { getNextLayerColor } from './utils/layerColors';
 import { fetchNearbyPlaces, placesToGeoJSON, getDailyUsageStats, getCategoryDisplay, DailyUsageStats } from './utils/googlePlaces';
 import { loadLamasFile, getUniqueLocalities } from './utils/lamasFiles';
-import { testGovMapConnection } from './utils/govmap';
+import { testGovMapConnection, fetchGovMapLayer } from './utils/govmap';
 import { AlertModal, useAlertModal } from './components/AlertModal';
 import { detectLayerType } from './utils/detectLayerType';
 import { Layer, AppView } from './types';
@@ -837,6 +837,50 @@ export default function App() {
     }
   };
 
+  const handleFetchWinery = async () => {
+    setTestingGovMap(true);
+    try {
+      // First ensure API is connected
+      const connectionResult = await testGovMapConnection();
+      if (!connectionResult.success) {
+        showAlert('error', 'Connection Failed', 'GovMap API not connected. Please test connection first.');
+        return;
+      }
+
+      // Fetch winery layer
+      const result = await fetchGovMapLayer('LAYER_YEKEV');
+      
+      if (result.success && result.data) {
+        // Add to map as a new layer
+        const newLayer: Layer = {
+          id: `govmap_winery_${Date.now()}`,
+          name: '🍷 GovMap Wineries',
+          visible: true,
+          data: result.data,
+          color: getNextLayerColor(),
+          type: detectLayerType(result.data),
+          opacity: 1,
+          grid: {
+            show: false,
+            showLabels: false,
+            size: 1,
+            opacity: 0.3
+          }
+        };
+        
+        setLayers(prev => [...prev, newLayer]);
+        showAlert('success', 'Wineries Loaded', 
+          `${result.message}\n\nLayer added to map.`);
+      } else {
+        showAlert('error', 'Fetch Failed', result.message);
+      }
+    } catch (error: any) {
+      showAlert('error', 'Fetch Error', error.message || 'Unknown error occurred');
+    } finally {
+      setTestingGovMap(false);
+    }
+  };
+
   const handlePolygonClick = (layerId: string, featureIndex: number, feature: Feature) => {
     // If invalid indices, clear selection
     if (layerId === '' || featureIndex === -1) {
@@ -1475,8 +1519,8 @@ export default function App() {
                             selectedLocality={selectedLocality}
                           />
                           
-                          {/* GovMap API Test Button */}
-                          <div className="pt-3 border-t border-slate-200">
+                          {/* GovMap API Test Buttons */}
+                          <div className="pt-3 border-t border-slate-200 space-y-2">
                             <button
                               onClick={handleTestGovMap}
                               disabled={testingGovMap}
@@ -1491,6 +1535,23 @@ export default function App() {
                                 <>
                                   <Globe size={16} />
                                   Test GovMap API
+                                </>
+                              )}
+                            </button>
+                            <button
+                              onClick={handleFetchWinery}
+                              disabled={testingGovMap}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-lg font-semibold hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm"
+                            >
+                              {testingGovMap ? (
+                                <>
+                                  <Loader2 size={16} className="animate-spin" />
+                                  Loading...
+                                </>
+                              ) : (
+                                <>
+                                  🍷
+                                  Fetch Wineries Layer
                                 </>
                               )}
                             </button>

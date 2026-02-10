@@ -122,3 +122,72 @@ export const searchGovMapLocation = async (query: string): Promise<GovMapSearchR
     }
   });
 };
+
+/**
+ * Fetch GovMap layer data and convert to GeoJSON
+ * @param layerName Name of the GovMap layer (e.g., 'LAYER_YEKEV' for winery)
+ * @param bounds Optional bounds to limit the query [minX, minY, maxX, maxY]
+ */
+export const fetchGovMapLayer = async (
+  layerName: string,
+  bounds?: [number, number, number, number]
+): Promise<{ success: boolean; data?: any; message: string }> => {
+  try {
+    // Ensure API is loaded
+    const govmap = (window as any).govm;
+    
+    if (!govmap) {
+      throw new Error('GovMap API not initialized. Call testGovMapConnection first.');
+    }
+
+    // Use GovMap getLayerData API
+    return new Promise((resolve) => {
+      const options: any = {
+        token: GOVMAP_API_TOKEN,
+        layerName: layerName,
+      };
+
+      // Add bounds if provided
+      if (bounds) {
+        options.extent = {
+          xmin: bounds[0],
+          ymin: bounds[1],
+          xmax: bounds[2],
+          ymax: bounds[3]
+        };
+      }
+
+      // Call GovMap API to get layer data
+      govmap.getLayerData(options, {
+        success: (data: any) => {
+          // Convert to GeoJSON
+          const geojson = {
+            type: 'FeatureCollection',
+            features: data.features?.map((feature: any) => ({
+              type: 'Feature',
+              geometry: feature.geometry,
+              properties: feature.attributes || {}
+            })) || []
+          };
+
+          resolve({
+            success: true,
+            data: geojson,
+            message: `Successfully fetched ${geojson.features.length} features from ${layerName}`
+          });
+        },
+        error: (error: any) => {
+          resolve({
+            success: false,
+            message: `Failed to fetch layer ${layerName}: ${JSON.stringify(error)}`
+          });
+        }
+      });
+    });
+  } catch (error: any) {
+    return {
+      success: false,
+      message: `Error fetching GovMap layer: ${error.message}`
+    };
+  }
+};
