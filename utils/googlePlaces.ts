@@ -181,7 +181,7 @@ const fetchPlaceDetails = async (placeId: string): Promise<PlaceDetails> => {
 /**
  * Convert places to GeoJSON features
  */
-export const placesToGeoJSON = (places: PlaceDetails[]): Feature[] => {
+export const placesToGeoJSON = (places: PlaceDetails[], categoryType?: string): Feature[] => {
     return places.map((place, idx) => ({
         type: 'Feature',
         geometry: {
@@ -192,7 +192,9 @@ export const placesToGeoJSON = (places: PlaceDetails[]): Feature[] => {
             id: `place-${idx}`,
             name: place.name,
             address: place.address,
-            category: place.category,
+            category: categoryType || place.category,
+            lat: place.lat,
+            lng: place.lng,
             rating: place.rating || 'N/A',
             ratingCount: place.ratingCount || 0,
             closingHour: place.closingHour || 'Not available',

@@ -216,6 +216,46 @@ export function getUniqueMunicipalities(geojson: FeatureCollection): string[] {
 }
 
 /**
+ * Get unique localities from SHEM_YISHUV_ENG field (English names)
+ */
+export function getUniqueLocalities(geojson: FeatureCollection): string[] {
+  const localitySet = new Set<string>();
+
+  geojson.features.forEach(feature => {
+    const props = feature.properties || {};
+    const locality = props.SHEM_YISHUV_ENG;
+    
+    if (locality && typeof locality === 'string') {
+      localitySet.add(locality);
+    }
+  });
+
+  return Array.from(localitySet).sort((a, b) => a.localeCompare(b, 'en'));
+}
+
+/**
+ * Filter features by locality (SHEM_YISHUV_ENG)
+ */
+export function filterByLocality(
+  geojson: FeatureCollection,
+  localityName: string
+): FeatureCollection {
+  if (localityName === 'All') {
+    return geojson;
+  }
+
+  const filtered = {
+    ...geojson,
+    features: geojson.features.filter(feature => {
+      const props = feature.properties || {};
+      return props.SHEM_YISHUV_ENG === localityName;
+    })
+  };
+
+  return filtered;
+}
+
+/**
  * Get Hebrew name for a field from MIFKAD metadata
  * Returns the Hebrew name if found, otherwise returns the original field name
  */

@@ -18,9 +18,12 @@ import { fetchJerusalemLayers, fetchJerusalemLayerData } from './utils/jerusalem
 import { fetchHaifaLayers, fetchHaifaLayerData } from './utils/haifaGis';
 import { getNextLayerColor } from './utils/layerColors';
 import { fetchNearbyPlaces, placesToGeoJSON, getDailyUsageStats, getCategoryDisplay, DailyUsageStats } from './utils/googlePlaces';
+import { loadLamasFile, getUniqueLocalities } from './utils/lamasFiles';
+import { testGovMapConnection } from './utils/govmap';
+import { AlertModal, useAlertModal } from './components/AlertModal';
 import { detectLayerType } from './utils/detectLayerType';
 import { Layer, AppView } from './types';
-import { Menu, Map as MapIcon, Database, Layers, Compass, BarChart3, Loader2, Box, Download, Globe, Home, Crosshair, Search, Info, Building, Flag, ShoppingCart, ChevronDown, ChevronRight } from 'lucide-react';
+import { Menu, Map as MapIcon, Database, Layers, Compass, BarChart3, Loader2, Box, Download, Globe, Home, Crosshair, Search, Info, Building, Flag, ShoppingCart, ChevronDown, ChevronRight, UtensilsCrossed, Coffee, Beer, Hotel, Store, ShoppingBag, Pill, Hospital, Trees, Landmark, BookOpen, GraduationCap, Banknote, CreditCard } from 'lucide-react';
 import { Feature, GeoJsonProperties } from 'geojson';
 
 export default function App() {
@@ -62,9 +65,18 @@ export default function App() {
   const [showAllHaifaLayers, setShowAllHaifaLayers] = useState(false);
   const [selectedCity, setSelectedCity] = useState<string>('');
   
+  // National LAMAS State
+  const [availableLocalities, setAvailableLocalities] = useState<string[]>([]);
+  const [selectedLocality, setSelectedLocality] = useState<string>('All');
+  const [loadingLocalities, setLoadingLocalities] = useState(false);
+  const [testingGovMap, setTestingGovMap] = useState(false);
+  
+  // Alert Modal
+  const { modal, showAlert, hideAlert } = useAlertModal();
+  
   // Google Places State
   const [googlePlacesCategory, setGooglePlacesCategory] = useState('restaurant');
-  const [googlePlacesLayerName, setGooglePlacesLayerName] = useState('Google Places Search');
+  const [googlePlacesLayerName, setGooglePlacesLayerName] = useState('');
   const [googlePlacesRadius, setGooglePlacesRadius] = useState(1000);
   const [googlePlacesUsage, setGooglePlacesUsage] = useState<DailyUsageStats | null>(null);
   const [isPickingGooglePlaces, setIsPickingGooglePlaces] = useState(false);
@@ -138,6 +150,25 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // Load available localities when national section is expanded
+    const loadLocalities = async () => {
+      if (expandedCategory === 'national' && availableLocalities.length === 0) {
+        setLoadingLocalities(true);
+        try {
+          const geojson = await loadLamasFile('mifkad2022');
+          const localities = getUniqueLocalities(geojson);
+          setAvailableLocalities(localities);
+        } catch (err) {
+          console.error('Failed to load localities:', err);
+        } finally {
+          setLoadingLocalities(false);
+        }
+      }
+    };
+    loadLocalities();
+  }, [expandedCategory, availableLocalities.length]);
+
+  useEffect(() => {
     // Load Google Places usage stats
     const stats = getDailyUsageStats();
     setGooglePlacesUsage(stats);
@@ -156,6 +187,22 @@ export default function App() {
       window.removeEventListener('copyPolygon', handleCopyPolygonEvent);
     };
   }, [selectedPolygon]);
+
+  useEffect(() => {
+    // Close category dropdown when clicking outside
+    const handleClickOutside = (event: MouseEvent) => {
+      const dropdown = document.getElementById('category-dropdown');
+      const button = (event.target as HTMLElement).closest('.category-dropdown-button');
+      if (dropdown && !dropdown.contains(event.target as Node) && !button) {
+        dropdown.classList.add('hidden');
+      }
+    };
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, nameOverride: string) => {
     const file = e.target.files?.[0];
@@ -651,12 +698,13 @@ export default function App() {
         return;
       }
 
-      const features = placesToGeoJSON(places);
+      const features = placesToGeoJSON(places, googlePlacesCategory);
       const geojson = { type: 'FeatureCollection' as const, features };
       const layerType = detectLayerType(geojson);
+      const categoryName = googlePlacesCategory.charAt(0).toUpperCase() + googlePlacesCategory.slice(1);
       const newLayer: Layer = {
         id: `places-${Date.now()}`,
-        name: googlePlacesLayerName || `${getCategoryDisplay(googlePlacesCategory)} (${places.length})`,
+        name: googlePlacesLayerName || `${categoryName} - Places API`,
         visible: true,
         data: geojson,
         color: getNextLayerColor(),
@@ -769,6 +817,24 @@ export default function App() {
       setLayers(prev => [...prev, newLayer]);
       setActiveView('map');
       setZoomToLayerId(newLayer.id);
+  };
+
+  const handleTestGovMap = async () => {
+    setTestingGovMap(true);
+    try {
+      const result = await testGovMapConnection();
+      
+      if (result.success) {
+        showAlert('success', 'GovMap API Connected', 
+          `${result.message}\n\nAPI URL: ${result.data?.apiUrl}\nToken: ${result.data?.token}\nScript Loaded: ${result.data?.scriptLoaded ? 'Yes' : 'No'}`);
+      } else {
+        showAlert('error', 'GovMap Connection Failed', result.message);
+      }
+    } catch (error: any) {
+      showAlert('error', 'GovMap Test Error', error.message || 'Unknown error occurred');
+    } finally {
+      setTestingGovMap(false);
+    }
   };
 
   const handlePolygonClick = (layerId: string, featureIndex: number, feature: Feature) => {
@@ -1379,8 +1445,57 @@ export default function App() {
                       </button>
                       
                       {expandedCategory === 'national' && (
-                        <div className="p-4 border-t border-slate-100 bg-slate-50">
-                          <LamasFileLoader onAddLayer={handleAddLayer} />
+                        <div className="p-4 border-t border-slate-100 bg-slate-50 space-y-3">
+                          {/* Locality Selector */}
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-2">
+                              Select Locality
+                            </label>
+                            {loadingLocalities ? (
+                              <div className="flex items-center justify-center py-2 text-sm text-slate-400">
+                                <Loader2 size={16} className="animate-spin mr-2" />
+                                Loading localities...
+                              </div>
+                            ) : (
+                              <select
+                                value={selectedLocality}
+                                onChange={(e) => setSelectedLocality(e.target.value)}
+                                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none bg-white"
+                              >
+                                <option value="All">All</option>
+                                {availableLocalities.map(locality => (
+                                  <option key={locality} value={locality}>{locality}</option>
+                                ))}
+                              </select>
+                            )}
+                          </div>
+                          
+                          <LamasFileLoader 
+                            onAddLayer={handleAddLayer} 
+                            selectedLocality={selectedLocality}
+                          />
+                          
+                          {/* GovMap API Test Button */}
+                          <div className="pt-3 border-t border-slate-200">
+                            <button
+                              onClick={handleTestGovMap}
+                              disabled={testingGovMap}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm"
+                            >
+                              {testingGovMap ? (
+                                <>
+                                  <Loader2 size={16} className="animate-spin" />
+                                  Testing...
+                                </>
+                              ) : (
+                                <>
+                                  <Globe size={16} />
+                                  Test GovMap API
+                                </>
+                              )}
+                            </button>
+                            <p className="text-xs text-slate-400 mt-2 text-center">Test connection to govmap.gov.il</p>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1430,51 +1545,95 @@ export default function App() {
                                   type="text"
                                   value={googlePlacesLayerName}
                                   onChange={(e) => setGooglePlacesLayerName(e.target.value)}
-                                  placeholder="e.g., Restaurants in Tel Aviv"
+                                  placeholder="Restaurant - Places API"
                                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none"
                                 />
                               </div>
 
                               <div>
                                 <label className="block text-xs font-semibold text-slate-600 mb-1">Category</label>
-                                <select
-                                  value={googlePlacesCategory}
-                                  onChange={(e) => setGooglePlacesCategory(e.target.value)}
-                                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none bg-white"
-                                >
-                                  <option value="restaurant">🍽️ Restaurant</option>
-                                  <option value="cafe">☕ Café</option>
-                                  <option value="bar">🍺 Bar</option>
-                                  <option value="hotel">🏨 Hotel</option>
-                                  <option value="shop">🛍️ Shop</option>
-                                  <option value="supermarket">🛒 Supermarket</option>
-                                  <option value="pharmacy">💊 Pharmacy</option>
-                                  <option value="hospital">🏥 Hospital</option>
-                                  <option value="park">🌳 Park</option>
-                                  <option value="museum">🏛️ Museum</option>
-                                  <option value="library">📚 Library</option>
-                                  <option value="school">🎓 School</option>
-                                  <option value="bank">🏦 Bank</option>
-                                  <option value="atm">💰 ATM</option>
-                                </select>
+                                <div className="relative">
+                                  <button
+                                    type="button"
+                                    className="category-dropdown-button w-full pl-9 pr-8 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none bg-white text-left flex items-center"
+                                    onClick={() => {
+                                      const dropdown = document.getElementById('category-dropdown');
+                                      if (dropdown) dropdown.classList.toggle('hidden');
+                                    }}
+                                  >
+                                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-amber-600">
+                                      {googlePlacesCategory === 'restaurant' && <UtensilsCrossed size={16} />}
+                                      {googlePlacesCategory === 'cafe' && <Coffee size={16} />}
+                                      {googlePlacesCategory === 'bar' && <Beer size={16} />}
+                                      {googlePlacesCategory === 'hotel' && <Hotel size={16} />}
+                                      {googlePlacesCategory === 'shop' && <Store size={16} />}
+                                      {googlePlacesCategory === 'supermarket' && <ShoppingBag size={16} />}
+                                      {googlePlacesCategory === 'pharmacy' && <Pill size={16} />}
+                                      {googlePlacesCategory === 'hospital' && <Hospital size={16} />}
+                                      {googlePlacesCategory === 'park' && <Trees size={16} />}
+                                      {googlePlacesCategory === 'museum' && <Landmark size={16} />}
+                                      {googlePlacesCategory === 'library' && <BookOpen size={16} />}
+                                      {googlePlacesCategory === 'school' && <GraduationCap size={16} />}
+                                      {googlePlacesCategory === 'bank' && <Banknote size={16} />}
+                                      {googlePlacesCategory === 'atm' && <CreditCard size={16} />}
+                                    </div>
+                                    <span className="capitalize">{googlePlacesCategory === 'cafe' ? 'Café' : googlePlacesCategory === 'atm' ? 'ATM' : googlePlacesCategory}</span>
+                                    <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                  </button>
+                                  
+                                  <div id="category-dropdown" className="hidden absolute z-10 w-full mt-1 bg-white border border-slate-300 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                                    {[
+                                      { value: 'restaurant', label: 'Restaurant', icon: <UtensilsCrossed size={16} /> },
+                                      { value: 'cafe', label: 'Café', icon: <Coffee size={16} /> },
+                                      { value: 'bar', label: 'Bar', icon: <Beer size={16} /> },
+                                      { value: 'hotel', label: 'Hotel', icon: <Hotel size={16} /> },
+                                      { value: 'shop', label: 'Shop', icon: <Store size={16} /> },
+                                      { value: 'supermarket', label: 'Supermarket', icon: <ShoppingBag size={16} /> },
+                                      { value: 'pharmacy', label: 'Pharmacy', icon: <Pill size={16} /> },
+                                      { value: 'hospital', label: 'Hospital', icon: <Hospital size={16} /> },
+                                      { value: 'park', label: 'Park', icon: <Trees size={16} /> },
+                                      { value: 'museum', label: 'Museum', icon: <Landmark size={16} /> },
+                                      { value: 'library', label: 'Library', icon: <BookOpen size={16} /> },
+                                      { value: 'school', label: 'School', icon: <GraduationCap size={16} /> },
+                                      { value: 'bank', label: 'Bank', icon: <Banknote size={16} /> },
+                                      { value: 'atm', label: 'ATM', icon: <CreditCard size={16} /> }
+                                    ].map(category => (
+                                      <button
+                                        key={category.value}
+                                        type="button"
+                                        onClick={() => {
+                                          setGooglePlacesCategory(category.value);
+                                          document.getElementById('category-dropdown')?.classList.add('hidden');
+                                        }}
+                                        className={`w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-amber-50 transition-colors ${
+                                          googlePlacesCategory === category.value ? 'bg-amber-50 text-amber-600' : 'text-slate-700'
+                                        }`}
+                                      >
+                                        <span className="text-amber-600">{category.icon}</span>
+                                        <span>{category.label}</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
                               </div>
 
                               <div>
-                                <label className="block text-xs font-semibold text-slate-600 mb-2">Search Radius</label>
-                                <div className="space-y-2">
-                                  {[500, 1000, 2000, 5000, 10000].map(radius => (
-                                    <label key={radius} className="flex items-center gap-2 cursor-pointer">
-                                      <input
-                                        type="radio"
-                                        name="radius"
-                                        value={radius}
-                                        checked={googlePlacesRadius === radius}
-                                        onChange={(e) => setGooglePlacesRadius(parseInt(e.target.value))}
-                                        className="w-4 h-4 accent-amber-600"
-                                      />
-                                      <span className="text-sm text-slate-700">{(radius / 1000).toFixed(1)} km ({radius}m)</span>
-                                    </label>
-                                  ))}
+                                <label className="block text-xs font-semibold text-slate-600 mb-2">Search Radius: {(googlePlacesRadius / 1000).toFixed(1)} km</label>
+                                <input
+                                  type="range"
+                                  min="500"
+                                  max="4000"
+                                  step="100"
+                                  value={googlePlacesRadius}
+                                  onChange={(e) => setGooglePlacesRadius(parseInt(e.target.value))}
+                                  className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-amber-600"
+                                  style={{
+                                    background: `linear-gradient(to right, #d97706 0%, #d97706 ${((googlePlacesRadius - 500) / 3500) * 100}%, #e2e8f0 ${((googlePlacesRadius - 500) / 3500) * 100}%, #e2e8f0 100%)`
+                                  }}
+                                />
+                                <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+                                  <span>0.5 km</span>
+                                  <span>4.0 km</span>
                                 </div>
                               </div>
 
@@ -1599,6 +1758,15 @@ export default function App() {
           </div>
         </div>
       )}
+      
+      {/* Alert Modal */}
+      <AlertModal 
+        show={modal.show}
+        type={modal.type}
+        title={modal.title}
+        message={modal.message}
+        onClose={hideAlert}
+      />
     </div>
   );
 }

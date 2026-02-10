@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { Layer } from '../types';
-import { AVAILABLE_LAMAS_FILES, loadLamasFile } from '../utils/lamasFiles';
+import { AVAILABLE_LAMAS_FILES, loadLamasFile, filterByLocality } from '../utils/lamasFiles';
 import { Download, Loader2 } from 'lucide-react';
 
 interface LamasFileLoaderProps {
   onAddLayer: (layer: Layer) => void;
+  selectedLocality?: string;
 }
 
-export const LamasFileLoader: React.FC<LamasFileLoaderProps> = ({ onAddLayer }) => {
+export const LamasFileLoader: React.FC<LamasFileLoaderProps> = ({ onAddLayer, selectedLocality = 'All' }) => {
   const [selectedFileId, setSelectedFileId] = useState<string>('mifkad2022');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
@@ -20,7 +21,14 @@ export const LamasFileLoader: React.FC<LamasFileLoaderProps> = ({ onAddLayer }) 
 
     try {
       // Load the GeoJSON file
-      const geojson = await loadLamasFile(selectedFileId);
+      let geojson = await loadLamasFile(selectedFileId);
+
+      // Filter by locality if selected
+      geojson = filterByLocality(geojson, selectedLocality);
+
+      if (geojson.features.length === 0) {
+        throw new Error(`No data found for locality: ${selectedLocality}`);
+      }
 
       // Get file info
       const fileInfo = AVAILABLE_LAMAS_FILES.find(f => f.id === selectedFileId);
@@ -29,10 +37,15 @@ export const LamasFileLoader: React.FC<LamasFileLoaderProps> = ({ onAddLayer }) 
         throw new Error('File info not found');
       }
 
+      // Create layer name based on locality selection
+      const layerName = selectedLocality === 'All' 
+        ? 'Lamas-Mifkad_2022'
+        : `Lamas-Mifkad_2022 - ${selectedLocality}`;
+
       // Create layer object
       const layer: Layer = {
         id: `lamas_${selectedFileId}_${Date.now()}`,
-        name: `Lamas-Mifkad_2022`,
+        name: layerName,
         type: 'polygon',
         data: geojson,
         visible: true,
