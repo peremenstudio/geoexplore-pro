@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Layer } from '../types';
 import { Feature } from 'geojson';
-import { BarChart3, Filter, PieChart, Layers, Check, X, MoreHorizontal, LayoutGrid, List, AlignVerticalJustifyEnd, Map as MapIcon, Clock, User, Pencil, Square, Circle, Scissors } from 'lucide-react';
+import { BarChart3, Filter, PieChart, Layers, Check, X, MoreHorizontal, LayoutGrid, List, AlignVerticalJustifyEnd, Map as MapIcon, Clock, User, Pencil, Square, Circle, Scissors, EyeOff } from 'lucide-react';
+import { AlertModal, useAlertModal } from './AlertModal';
 import { generateWalkingIsochrones } from '../utils/spatialAnalysis';
 import { filterFeaturesByPolygon } from '../utils/spatialFilter';
 import { getFieldHebrewName } from '../utils/lamasFiles';
@@ -76,6 +77,10 @@ const DualRangeSlider: React.FC<{
 }> = ({ min, max, value, onChange }) => {
     // Use controlled local state during dragging
     const [sliderValue, setSliderValue] = useState<[number, number]>([value.min, value.max]);
+    const [inputValues, setInputValues] = useState<[string, string]>([
+        value.min.toLocaleString(undefined, { maximumFractionDigits: 2 }),
+        value.max.toLocaleString(undefined, { maximumFractionDigits: 2 })
+    ]);
     const isFirstRender = useRef(true);
 
     // Sync with external value changes only on mount and when not dragging
@@ -85,6 +90,10 @@ const DualRangeSlider: React.FC<{
             return;
         }
         setSliderValue([value.min, value.max]);
+        setInputValues([
+            value.min.toLocaleString(undefined, { maximumFractionDigits: 2 }),
+            value.max.toLocaleString(undefined, { maximumFractionDigits: 2 })
+        ]);
     }, [value.min, value.max]);
 
     // Determine decimals based on range size
@@ -95,8 +104,58 @@ const DualRangeSlider: React.FC<{
         if (Array.isArray(newValue)) {
             // Update local state immediately for smooth UI
             setSliderValue([newValue[0], newValue[1]]);
+            setInputValues([
+                newValue[0].toLocaleString(undefined, { maximumFractionDigits: 2 }),
+                newValue[1].toLocaleString(undefined, { maximumFractionDigits: 2 })
+            ]);
             // Also update parent
             onChange({ min: newValue[0], max: newValue[1] });
+        }
+    };
+
+    const handleInputChange = (index: 0 | 1, val: string) => {
+        const newInputValues: [string, string] = [...inputValues] as [string, string];
+        newInputValues[index] = val;
+        setInputValues(newInputValues);
+    };
+
+    const handleInputBlur = (index: 0 | 1) => {
+        const numValue = parseFloat(inputValues[index].replace(/,/g, ''));
+        
+        if (isNaN(numValue)) {
+            // Reset to current slider value if invalid
+            setInputValues([
+                sliderValue[0].toLocaleString(undefined, { maximumFractionDigits: 2 }),
+                sliderValue[1].toLocaleString(undefined, { maximumFractionDigits: 2 })
+            ]);
+            return;
+        }
+
+        // Clamp value between min and max
+        const clampedValue = Math.max(min, Math.min(max, numValue));
+        
+        const newSliderValue: [number, number] = [...sliderValue] as [number, number];
+        newSliderValue[index] = clampedValue;
+        
+        // Ensure min <= max
+        if (index === 0 && newSliderValue[0] > newSliderValue[1]) {
+            newSliderValue[0] = newSliderValue[1];
+        } else if (index === 1 && newSliderValue[1] < newSliderValue[0]) {
+            newSliderValue[1] = newSliderValue[0];
+        }
+        
+        setSliderValue(newSliderValue);
+        setInputValues([
+            newSliderValue[0].toLocaleString(undefined, { maximumFractionDigits: 2 }),
+            newSliderValue[1].toLocaleString(undefined, { maximumFractionDigits: 2 })
+        ]);
+        onChange({ min: newSliderValue[0], max: newSliderValue[1] });
+    };
+
+    const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, index: 0 | 1) => {
+        if (e.key === 'Enter') {
+            handleInputBlur(index);
+            (e.target as HTMLInputElement).blur();
         }
     };
 
@@ -149,9 +208,23 @@ const DualRangeSlider: React.FC<{
                     },
                 }}
             />
-            <div className="flex justify-between text-[10px] font-bold text-slate-400 mt-1">
-                <span>{sliderValue[0].toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                <span>{sliderValue[1].toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+            <div className="flex justify-between gap-2 mt-1">
+                <input
+                    type="text"
+                    value={inputValues[0]}
+                    onChange={(e) => handleInputChange(0, e.target.value)}
+                    onBlur={() => handleInputBlur(0)}
+                    onKeyDown={(e) => handleInputKeyDown(e, 0)}
+                    className="w-20 px-2 py-1 text-[10px] font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded text-center hover:border-yellow-400 focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none transition-colors"
+                />
+                <input
+                    type="text"
+                    value={inputValues[1]}
+                    onChange={(e) => handleInputChange(1, e.target.value)}
+                    onBlur={() => handleInputBlur(1)}
+                    onKeyDown={(e) => handleInputKeyDown(e, 1)}
+                    className="w-20 px-2 py-1 text-[10px] font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded text-center hover:border-yellow-400 focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none transition-colors"
+                />
             </div>
         </Box>
     );
@@ -518,15 +591,26 @@ export const AnalyzeView: React.FC<AnalyzeViewProps> = ({
     const [isGeneratingIsochrone, setIsGeneratingIsochrone] = useState(false);
     const [showCutByBoundaryModal, setShowCutByBoundaryModal] = useState(false);
     const [isCuttingByBoundary, setIsCuttingByBoundary] = useState(false);
+    
+    // Alert Modal
+    const { modal, showAlert, hideAlert } = useAlertModal();
 
     const selectedLayer = layers.find(l => l.id === selectedLayerId);
+    const visibleLayers = layers.filter(l => l.visible);
 
-    // Initial Selection
+    // Initial Selection - only select from visible layers
     useEffect(() => {
-        if (!selectedLayerId && layers.length > 0) {
-            setSelectedLayerId(layers[0].id);
+        if (!selectedLayerId && visibleLayers.length > 0) {
+            setSelectedLayerId(visibleLayers[0].id);
         }
-    }, [layers, selectedLayerId]);
+    }, [layers, selectedLayerId, visibleLayers.length]);
+
+    // Auto-switch if current layer becomes hidden
+    useEffect(() => {
+        if (selectedLayerId && selectedLayer && !selectedLayer.visible && visibleLayers.length > 0) {
+            setSelectedLayerId(visibleLayers[0].id);
+        }
+    }, [selectedLayerId, selectedLayer, visibleLayers]);
 
     // Auto-select attributes only if not already set for this layer
     useEffect(() => {
@@ -630,7 +714,13 @@ export const AnalyzeView: React.FC<AnalyzeViewProps> = ({
         // Find ALL point features in the layer
         const pointFeatures = selectedLayer.data.features.filter(f => f.geometry?.type === 'Point');
         if (pointFeatures.length === 0) {
-            alert('Please select a layer with point features to generate isochrones.');
+            showAlert('warning', 'No Point Features', 'Please select a layer with point features to generate isochrones.');
+            return;
+        }
+        
+        // Validate maximum 5 points
+        if (pointFeatures.length > 5) {
+            showAlert('warning', 'Too Many Points', `You have ${pointFeatures.length} points in the layer.\n\nMaximum allowed: 5 points\n\nPlease filter the layer or create a smaller subset.`);
             return;
         }
         
@@ -686,7 +776,7 @@ export const AnalyzeView: React.FC<AnalyzeViewProps> = ({
             }
         } catch (error: any) {
             console.error('Isochrone generation error:', error);
-            alert(`Error: ${error.message}`);
+            showAlert('error', 'Error Generating Isochrones', error.message || 'An unexpected error occurred.');
         } finally {
             setIsGeneratingIsochrone(false);
         }
@@ -701,7 +791,7 @@ export const AnalyzeView: React.FC<AnalyzeViewProps> = ({
         // Find the first polygon feature to use as boundary
         const boundaryPolygon = boundaryLayer.data.features.find(f => f.geometry?.type === 'Polygon' || f.geometry?.type === 'MultiPolygon');
         if (!boundaryPolygon) {
-            alert('Selected boundary layer has no polygon features.');
+            showAlert('warning', 'Invalid Boundary', 'Selected boundary layer has no polygon features.');
             return;
         }
 
@@ -713,7 +803,7 @@ export const AnalyzeView: React.FC<AnalyzeViewProps> = ({
             const filteredFeatures = filterFeaturesByPolygon(selectedLayer.data.features, boundaryPolygon);
             
             if (filteredFeatures.length === 0) {
-                alert('No features found inside the selected boundary.');
+                showAlert('info', 'No Features Found', 'No features found inside the selected boundary.');
                 setShowCutByBoundaryModal(false);
                 return;
             }
@@ -735,16 +825,26 @@ export const AnalyzeView: React.FC<AnalyzeViewProps> = ({
                 };
                 onAddLayer(cutLayer);
                 console.log(`✅ Created new layer with ${filteredFeatures.length} features inside boundary`);
-                alert(`✅ Created "${cutLayer.name}" with ${filteredFeatures.length} features.`);
+                showAlert('success', 'Layer Created', `Successfully created "${cutLayer.name}" with ${filteredFeatures.length} features.`);
             }
         } catch (error: any) {
             console.error('Cut by boundary error:', error);
-            alert(`Error: ${error.message}`);
+            showAlert('error', 'Error Cutting Layer', error.message || 'An unexpected error occurred.');
         } finally {
             setIsCuttingByBoundary(false);
             setShowCutByBoundaryModal(false);
         }
     };
+
+    if (visibleLayers.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+                <EyeOff size={48} className="text-slate-300 mb-4" />
+                <p className="text-slate-500 font-medium">No visible layers to analyze</p>
+                <p className="text-slate-400 text-sm mt-2">Show at least one layer to start analyzing</p>
+            </div>
+        );
+    }
 
     if (!selectedLayer) {
         return <div className="p-8 text-center text-slate-400">No layers available to analyze.</div>;
@@ -778,15 +878,21 @@ export const AnalyzeView: React.FC<AnalyzeViewProps> = ({
                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Source Layer</label>
                         <div className="relative mb-3">
                             <Layers className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                            <select 
-                                value={selectedLayerId}
-                                onChange={(e) => setSelectedLayerId(e.target.value)}
-                                className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 appearance-none"
-                            >
-                                {layers.map(l => (
-                                    <option key={l.id} value={l.id}>{l.name}</option>
-                                ))}
-                            </select>
+                            {visibleLayers.length > 0 ? (
+                                <select 
+                                    value={selectedLayerId}
+                                    onChange={(e) => setSelectedLayerId(e.target.value)}
+                                    className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 appearance-none"
+                                >
+                                    {visibleLayers.map(l => (
+                                        <option key={l.id} value={l.id}>{l.name}</option>
+                                    ))}
+                                </select>
+                            ) : (
+                                <div className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-400 italic">
+                                    No visible layers
+                                </div>
+                            )}
                         </div>
                         
                         {/* Spatial Analysis Buttons */}
@@ -905,6 +1011,15 @@ export const AnalyzeView: React.FC<AnalyzeViewProps> = ({
                     </div>
                 </div>
             )}
+            
+            {/* Alert Modal */}
+            <AlertModal 
+                show={modal.show}
+                type={modal.type}
+                title={modal.title}
+                message={modal.message}
+                onClose={hideAlert}
+            />
         </div>
     );
 };

@@ -73,8 +73,6 @@ export default function App() {
   // Analyze State
   const [analyzedLayerId, setAnalyzedLayerId] = useState<string | null>(null);
   const [filteredFeatures, setFilteredFeatures] = useState<Feature[] | null>(null);
-  // Remember layer visibility state when in analyze view
-  const [savedAnalyzeLayerVisibility, setSavedAnalyzeLayerVisibility] = useState<Record<string, boolean>>({});
   // Persist filters and selected attributes per layer
   const [layerFilters, setLayerFilters] = useState<Record<string, Record<string, string[] | { min: number; max: number }>>>({});
   const [layerSelectedAttributes, setLayerSelectedAttributes] = useState<Record<string, string[]>>({});
@@ -158,41 +156,6 @@ export default function App() {
       window.removeEventListener('copyPolygon', handleCopyPolygonEvent);
     };
   }, [selectedPolygon]);
-
-  // Track previous activeView to detect tab changes
-  const prevActiveViewRef = useRef<AppView>(activeView);
-
-  useEffect(() => {
-      const prevView = prevActiveViewRef.current;
-      
-      // Entering analyze view - restore saved layer visibility
-      if (activeView === 'analyze' && prevView !== 'analyze') {
-          const savedState = savedAnalyzeLayerVisibility;
-          if (Object.keys(savedState).length > 0) {
-              setLayers(prev => prev.map(layer => ({
-                  ...layer,
-                  visible: savedState[layer.id] ?? layer.visible
-              })));
-          }
-      }
-      
-      // Leaving analyze view - save current visibility (but keep filters intact)
-      if (prevView === 'analyze' && activeView !== 'analyze') {
-          setLayers(prev => {
-              const visibilityState: Record<string, boolean> = {};
-              prev.forEach(layer => {
-                  visibilityState[layer.id] = layer.visible;
-              });
-              setSavedAnalyzeLayerVisibility(visibilityState);
-              return prev; // Return unchanged
-          });
-          // Don't clear analyzedLayerId and filteredFeatures - keep filters active
-      }
-      
-      // Update ref to current view
-      prevActiveViewRef.current = activeView;
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeView]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, nameOverride: string) => {
     const file = e.target.files?.[0];
