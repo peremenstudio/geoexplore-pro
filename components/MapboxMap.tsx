@@ -22,6 +22,8 @@ interface MapboxMapProps {
   fetchRadius?: number;
   googlePlacesLocation?: { lat: number, lng: number } | null;
   googlePlacesRadius?: number;
+  researchPointLocation?: { lat: number, lng: number } | null;
+  researchIsochrones?: Feature[] | null;
   activeView?: string;
 }
 
@@ -43,6 +45,8 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
   fetchRadius = 500,
   googlePlacesLocation,
   googlePlacesRadius = 1000,
+  researchPointLocation,
+  researchIsochrones,
   activeView = 'map'
 }) => {
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -405,7 +409,66 @@ export const MapboxMap: React.FC<MapboxMapProps> = ({
         }
       });
     }
-  }, [fetchLocation, fetchRadius, googlePlacesLocation, googlePlacesRadius, mapLoaded]);
+    // Research point location marker
+    if (map.current.getSource('research-point')) {
+      map.current.removeSource('research-point');
+    }
+
+    if (researchPointLocation) {
+      map.current.addSource('research-point', {
+        type: 'geojson',
+        data: {
+          type: 'Feature',
+          geometry: {
+            type: 'Point',
+            coordinates: [researchPointLocation.lng, researchPointLocation.lat]
+          },
+          properties: {}
+        }
+      });
+
+      map.current.addLayer({
+        id: 'research-point-circle',
+        type: 'circle',
+        source: 'research-point',
+        paint: {
+          'circle-radius': 12,
+          'circle-color': '#6366f1',
+          'circle-opacity': 0.8,
+          'circle-stroke-width': 3,
+          'circle-stroke-color': '#ffffff'
+        }
+      });
+    }
+    
+    // Research isochrones overlay (stroke only, no fill)
+    if (map.current.getSource('research-isochrones')) {
+      map.current.removeLayer('research-isochrones-outline');
+      map.current.removeSource('research-isochrones');
+    }
+
+    if (researchIsochrones && researchIsochrones.length > 0) {
+      map.current.addSource('research-isochrones', {
+        type: 'geojson',
+        data: {
+          type: 'FeatureCollection',
+          features: researchIsochrones
+        }
+      });
+
+      // Add outline layer (stroke only, no fill)
+      map.current.addLayer({
+        id: 'research-isochrones-outline',
+        type: 'line',
+        source: 'research-isochrones',
+        paint: {
+          'line-color': ['get', 'strokeColor'],
+          'line-width': ['coalesce', ['get', 'strokeWidth'], 3],
+          'line-opacity': ['coalesce', ['get', 'strokeOpacity'], 1]
+        }
+      });
+    }
+  }, [fetchLocation, fetchRadius, googlePlacesLocation, googlePlacesRadius, researchPointLocation, researchIsochrones, mapLoaded]);
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>

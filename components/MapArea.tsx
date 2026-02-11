@@ -21,6 +21,8 @@ interface MapAreaProps {
   fetchRadius?: number;
   googlePlacesLocation?: { lat: number, lng: number } | null;
   googlePlacesRadius?: number;
+  researchPointLocation?: { lat: number, lng: number } | null;
+  researchIsochrones?: Feature[] | null;
   activeView?: string;
   onPolygonClick?: (layerId: string, featureIndex: number, feature: Feature) => void;
   selectedPolygon?: { layerId: string; featureIndex: number; feature: Feature } | null;
@@ -681,6 +683,8 @@ export const MapArea: React.FC<MapAreaProps> = ({
     fetchRadius,
     googlePlacesLocation,
     googlePlacesRadius,
+    researchPointLocation,
+    researchIsochrones,
     activeView,
     onPolygonClick,
     selectedPolygon
@@ -783,6 +787,33 @@ export const MapArea: React.FC<MapAreaProps> = ({
             center={[googlePlacesLocation.lat, googlePlacesLocation.lng]}
             radius={googlePlacesRadius}
             pathOptions={{ color: '#f59e0b', fillColor: '#f59e0b', fillOpacity: 0.2, weight: 2 }}
+          />
+        )}
+
+        {/* Visual Marker for Research Point */}
+        {researchPointLocation && (
+          <Circle 
+            center={[researchPointLocation.lat, researchPointLocation.lng]}
+            radius={50}
+            pathOptions={{ color: '#6366f1', fillColor: '#6366f1', fillOpacity: 0.5, weight: 3 }}
+          />
+        )}
+
+        {/* Research Isochrones Overlay (stroke only, no fill) */}
+        {researchIsochrones && researchIsochrones.length > 0 && (
+          <GeoJSON
+            key={`research-isochrones-${JSON.stringify(researchIsochrones.map(f => f.properties?.minutes))}`}
+            data={{
+              type: 'FeatureCollection',
+              features: researchIsochrones
+            }}
+            style={(feature) => ({
+              color: feature?.properties?.strokeColor || '#22c55e',
+              weight: feature?.properties?.strokeWidth || 3,
+              opacity: feature?.properties?.strokeOpacity || 1,
+              fillOpacity: 0, // No fill, stroke only
+              fillColor: 'transparent'
+            })}
           />
         )}
 

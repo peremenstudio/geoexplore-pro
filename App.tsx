@@ -6,6 +6,7 @@ import { MapboxMap } from './components/MapboxMap';
 import { DataExplorer } from './components/DataExplorer';
 import { ExploreView } from './components/ExploreView';
 import { AnalyzeView } from './components/AnalyzeView';
+import { ResearchView } from './components/ResearchView';
 import { LamasFileLoader } from './components/LamasFileLoader';
 import { SalesRecordsLoader } from './components/SalesRecordsLoader';
 import { processFile } from './utils/fileProcessor';
@@ -22,7 +23,7 @@ import { loadLamasFile, getUniqueLocalities } from './utils/lamasFiles';
 import { AlertModal, useAlertModal } from './components/AlertModal';
 import { detectLayerType } from './utils/detectLayerType';
 import { Layer, AppView } from './types';
-import { Menu, Map as MapIcon, Database, Layers, Compass, BarChart3, Loader2, Box, Download, Globe, Home, Crosshair, Search, Info, Building, Flag, ShoppingCart, ChevronDown, ChevronRight, UtensilsCrossed, Coffee, Beer, Hotel, Store, ShoppingBag, Pill, Hospital, Trees, Landmark, BookOpen, GraduationCap, Banknote, CreditCard } from 'lucide-react';
+import { Menu, Map as MapIcon, Database, Layers, Compass, BarChart3, FlaskConical, Loader2, Box, Download, Globe, Home, Crosshair, Search, Info, Building, Flag, ShoppingCart, ChevronDown, ChevronRight, UtensilsCrossed, Coffee, Beer, Hotel, Store, ShoppingBag, Pill, Hospital, Trees, Landmark, BookOpen, GraduationCap, Banknote, CreditCard } from 'lucide-react';
 import { Feature, GeoJsonProperties } from 'geojson';
 
 export default function App() {
@@ -79,6 +80,11 @@ export default function App() {
   const [googlePlacesUsage, setGooglePlacesUsage] = useState<DailyUsageStats | null>(null);
   const [isPickingGooglePlaces, setIsPickingGooglePlaces] = useState(false);
   const [googlePlacesLocation, setGooglePlacesLocation] = useState<{lat: number, lng: number} | null>(null);
+
+  // Research State
+  const [isPickingResearchPoint, setIsPickingResearchPoint] = useState(false);
+  const [researchPointLocation, setResearchPointLocation] = useState<{lat: number, lng: number} | null>(null);
+  const [researchIsochrones, setResearchIsochrones] = useState<Feature[] | null>(null);
 
   // Analyze State
   const [analyzedLayerId, setAnalyzedLayerId] = useState<string | null>(null);
@@ -406,6 +412,12 @@ export default function App() {
     if (isPickingGooglePlaces) {
         setGooglePlacesLocation({ lat, lng });
         setIsPickingGooglePlaces(false);
+        return;
+    }
+
+    if (isPickingResearchPoint) {
+        setResearchPointLocation({ lat, lng });
+        setIsPickingResearchPoint(false);
         return;
     }
 
@@ -951,6 +963,12 @@ export default function App() {
                 >
                   <BarChart3 size={16} /> Analyze
                 </button>
+                <button 
+                  onClick={() => setActiveView('research')}
+                  className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${activeView === 'research' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}
+                >
+                  <FlaskConical size={16} /> Research
+                </button>
            </div>
 
            <div className="ml-auto relative z-10 flex items-center gap-3">
@@ -989,7 +1007,7 @@ export default function App() {
 
         <div className="flex-1 relative overflow-hidden bg-slate-50">
           {/* Map - Resize based on active view */}
-          <div className={`absolute inset-0 ${activeView === 'analyze' ? 'w-1/2' : 'w-full'}`}>
+          <div className={`absolute inset-0 ${activeView === 'analyze' || activeView === 'research' ? 'w-1/2' : 'w-full'}`}>
             {is3DMode ? (
               <MapboxMap 
                 layers={displayLayers} 
@@ -998,13 +1016,15 @@ export default function App() {
                 onZoomComplete={() => setZoomToLayerId(null)}
                 onUpdateFeature={handleUpdateFeature}
                 onAddLayer={handleAddLayer}
-                isPickingLocation={isPickingLocation || isPickingFetch}
+                isPickingLocation={isPickingLocation || isPickingFetch || isPickingResearchPoint}
                 isPickingGooglePlaces={isPickingGooglePlaces}
                 onMapClick={handleMapClick}
                 fetchLocation={fetchLocation}
                 fetchRadius={fetchRadius}
                 googlePlacesLocation={googlePlacesLocation}
                 googlePlacesRadius={googlePlacesRadius}
+                researchPointLocation={researchPointLocation}
+                researchIsochrones={researchIsochrones}
                 activeView={activeView}
               />
             ) : (
@@ -1015,13 +1035,15 @@ export default function App() {
                 onZoomComplete={() => setZoomToLayerId(null)}
                 onUpdateFeature={handleUpdateFeature}
                 onAddLayer={handleAddLayer}
-                isPickingLocation={isPickingLocation || isPickingFetch}
+                isPickingLocation={isPickingLocation || isPickingFetch || isPickingResearchPoint}
                 isPickingGooglePlaces={isPickingGooglePlaces}
                 onMapClick={handleMapClick}
                 fetchLocation={fetchLocation}
                 fetchRadius={fetchRadius}
                 googlePlacesLocation={googlePlacesLocation}
                 googlePlacesRadius={googlePlacesRadius}
+                researchPointLocation={researchPointLocation}
+                researchIsochrones={researchIsochrones}
                 activeView={activeView}
                 onPolygonClick={handlePolygonClick}
                 selectedPolygon={selectedPolygon}
@@ -1077,6 +1099,23 @@ export default function App() {
                 <ExploreView 
                     onAddLayer={handleAddExploreLayer}
                     mapCenter={fetchLocation} 
+                />
+             </div>
+          )}
+
+          {activeView === 'research' && (
+             <div className="absolute top-0 right-0 bottom-0 w-1/2 bg-slate-50 z-20">
+                <ResearchView 
+                    layers={layers}
+                    onAddLayer={(newLayer) => {
+                        setLayers(prev => [...prev, newLayer]);
+                        setZoomToLayerId(newLayer.id);
+                    }}
+                    isPickingPoint={isPickingResearchPoint}
+                    onSetIsPickingPoint={setIsPickingResearchPoint}
+                    samplePointLocation={researchPointLocation}
+                    onSetSamplePointLocation={setResearchPointLocation}
+                    onSetResearchIsochrones={setResearchIsochrones}
                 />
              </div>
           )}

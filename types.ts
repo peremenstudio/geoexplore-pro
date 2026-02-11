@@ -32,4 +32,4 @@ export interface Layer {
   };
 }
 
-export type AppView = 'map' | 'data' | 'explore' | 'analyze';
+export type AppView = 'map' | 'data' | 'explore' | 'analyze' | 'research';
