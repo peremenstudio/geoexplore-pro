@@ -1111,6 +1111,9 @@ export default function App() {
                         setLayers(prev => [...prev, newLayer]);
                         setZoomToLayerId(newLayer.id);
                     }}
+                    onRemoveLayer={(layerId) => {
+                        setLayers(prev => prev.filter(l => l.id !== layerId));
+                    }}
                     isPickingPoint={isPickingResearchPoint}
                     onSetIsPickingPoint={setIsPickingResearchPoint}
                     samplePointLocation={researchPointLocation}
