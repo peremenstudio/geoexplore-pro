@@ -114,6 +114,36 @@ export const RELIGION_CODES: Record<number, string> = {
   6: 'דת אחרת'
 };
 
+// Field metadata for Socio-2019 dataset - Socio-Economic Data 2019
+export const SOCIO_FIELD_METADATA = [
+  // Identifiers
+  { field: 'OBJECTID', hebrewName: 'מזהה פנימי', category: 'מזהים' },
+  { field: 'SHEM_YISHUV', hebrewName: 'שם יישוב בעברית', category: 'מזהים' },
+  { field: 'SHEM_YISHUV_ENGLISH', hebrewName: 'תעתיק באנגלית של שם היישוב', category: 'מזהים' },
+  { field: 'Main_Function_Code', hebrewName: 'תפקוד עיקרי - קוד', category: 'מזהים' },
+  { field: 'Main_Function_Txt', hebrewName: 'תפקוד עיקרי - תיאור', category: 'מזהים' },
+  
+  // Socio-Economic
+  { field: 'eshkol_madad2019', hebrewName: 'אשכול חברתי-כלכלי 2019 (1-10)', category: 'סוציו-אקונומי' },
+  
+  // Geometry
+  { field: 'SHAPE_Area', hebrewName: 'שטח במטרים מרובעים', category: 'גיאומטריה' },
+];
+
+// Socio-economic cluster codes (1-10, lower is lower socio-economic status)
+export const ESHKOL_MADAD_CODES: Record<number, string> = {
+  1: 'אשכול 1 - נמוך ביותר',
+  2: 'אשכול 2 - נמוך',
+  3: 'אשכול 3 - נמוך-בינוני',
+  4: 'אשכול 4 - בינוני-נמוך',
+  5: 'אשכול 5 - בינוני',
+  6: 'אשכול 6 - בינוני-גבוה',
+  7: 'אשכול 7 - גבוה-בינוני',
+  8: 'אשכול 8 - גבוה',
+  9: 'אשכול 9 - גבוה מאוד',
+  10: 'אשכול 10 - גבוה ביותר'
+};
+
 // Available LAMAS files
 export const AVAILABLE_LAMAS_FILES = [
   {
@@ -123,6 +153,14 @@ export const AVAILABLE_LAMAS_FILES = [
     description: 'נתוני מפקד האוכלוסין 2022 ברמת אזור סטטיסטי',
     year: 2022,
     fieldMetadata: MIFKAD_FIELD_METADATA
+  },
+  {
+    id: 'socio2019',
+    name: 'סוציו 2019 - אשכולות חברתיים-כלכליים',
+    filename: 'Socio-2019.geojson',
+    description: 'נתוני אשכולות חברתיים-כלכליים 2019',
+    year: 2019,
+    fieldMetadata: SOCIO_FIELD_METADATA
   }
 ];
 
@@ -216,14 +254,14 @@ export function getUniqueMunicipalities(geojson: FeatureCollection): string[] {
 }
 
 /**
- * Get unique localities from SHEM_YISHUV_ENG field (English names)
+ * Get unique localities from SHEM_YISHUV_ENG or SHEM_YISHUV_ENGLISH field (English names)
  */
 export function getUniqueLocalities(geojson: FeatureCollection): string[] {
   const localitySet = new Set<string>();
 
   geojson.features.forEach(feature => {
     const props = feature.properties || {};
-    const locality = props.SHEM_YISHUV_ENG;
+    const locality = props.SHEM_YISHUV_ENG || props.SHEM_YISHUV_ENGLISH;
     
     if (locality && typeof locality === 'string') {
       localitySet.add(locality);
@@ -234,7 +272,7 @@ export function getUniqueLocalities(geojson: FeatureCollection): string[] {
 }
 
 /**
- * Filter features by locality (SHEM_YISHUV_ENG)
+ * Filter features by locality (SHEM_YISHUV_ENG or SHEM_YISHUV_ENGLISH)
  */
 export function filterByLocality(
   geojson: FeatureCollection,
@@ -248,7 +286,7 @@ export function filterByLocality(
     ...geojson,
     features: geojson.features.filter(feature => {
       const props = feature.properties || {};
-      return props.SHEM_YISHUV_ENG === localityName;
+      return props.SHEM_YISHUV_ENG === localityName || props.SHEM_YISHUV_ENGLISH === localityName;
     })
   };
 

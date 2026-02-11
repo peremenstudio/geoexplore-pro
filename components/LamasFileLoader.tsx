@@ -37,10 +37,10 @@ export const LamasFileLoader: React.FC<LamasFileLoaderProps> = ({ onAddLayer, se
         throw new Error('File info not found');
       }
 
-      // Create layer name based on locality selection
+      // Create layer name based on file and locality selection
       const layerName = selectedLocality === 'All' 
-        ? 'Lamas-Mifkad_2022'
-        : `Lamas-Mifkad_2022 - ${selectedLocality}`;
+        ? fileInfo.name
+        : `${fileInfo.name} - ${selectedLocality}`;
 
       // Create layer object
       const layer: Layer = {
@@ -98,7 +98,11 @@ export const LamasFileLoader: React.FC<LamasFileLoaderProps> = ({ onAddLayer, se
           className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none bg-white"
           disabled={loading}
         >
-          <option value="mifkad2022">Lamas-Mifkad_2022</option>
+          {AVAILABLE_LAMAS_FILES.map(file => (
+            <option key={file.id} value={file.id}>
+              {file.name}
+            </option>
+          ))}
         </select>
       </div>
 
