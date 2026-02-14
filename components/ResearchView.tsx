@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Layer } from '../types';
-import { Feature } from 'geojson';
-import { FlaskConical, Sliders, Eye, EyeOff, Play, MapPin, Info, TrendingUp, Users, Building2, Landmark, Loader2, Trash2 } from 'lucide-react';
+import { Feature, Polygon, MultiPolygon } from 'geojson';
+import { FlaskConical, Sliders, Eye, EyeOff, Play, MapPin, Info, TrendingUp, Users, Building2, Landmark, Loader2, Trash2, Bus } from 'lucide-react';
 import Slider from '@mui/material/Slider';
 import Box from '@mui/material/Box';
+import Tooltip from '@mui/material/Tooltip';
 import { 
     generateSimpleIsochrones, 
     filterFeaturesByZone, 
@@ -12,7 +13,7 @@ import {
     createSampleGrid
 } from '../utils/researchScoring';
 import { getNextLayerColor } from '../utils/layerColors';
-import { generateWalkingIsochrones } from '../utils/spatialAnalysis';
+import { generateWalkingIsochrones, duplicateLayer, separateIsochroneLayers, clip, calculateArea, difference } from '../utils/gisToolbox';
 import { calculateAreaInIsochrones, calculateGreenSpaceScore, telAvivIndicators, fetchTelAvivGreenSpaces } from '../utils/researchTelAviv';
 import { filterFeaturesByPolygon } from '../utils/spatialFilter';
 import * as turf from '@turf/turf';
@@ -132,6 +133,41 @@ export const ResearchView: React.FC<ResearchViewProps> = ({
         percentage?: number;
         score?: number;
     }>({});
+
+    // Analysis table data
+    const [analysisResults, setAnalysisResults] = useState<{
+        isochroneArea: { zone5: number | null; zone10: number | null; zone15: number | null };
+        gardens: { zone5: number | null; zone10: number | null; zone15: number | null };
+        gardenScores: { zone5: number | null; zone10: number | null; zone15: number | null };
+        busStations: { zone5: number | null; zone10: number | null; zone15: number | null };
+        busStationScores: { zone5: number | null; zone10: number | null; zone15: number | null };
+    }>({
+        isochroneArea: { zone5: null, zone10: null, zone15: null },
+        gardens: { zone5: null, zone10: null, zone15: null },
+        gardenScores: { zone5: null, zone10: null, zone15: null },
+        busStations: { zone5: null, zone10: null, zone15: null },
+        busStationScores: { zone5: null, zone10: null, zone15: null }
+    });
+
+    const [runningAnalysis, setRunningAnalysis] = useState<string | null>(null); // Track which row is running
+    
+    // Store isochrones from isochrone area analysis for reuse in gardens analysis
+    const [storedIsochrones, setStoredIsochrones] = useState<any>(null);
+
+    // Calculate transit score from bus station counts
+    // Uses square root to account for diminishing returns (multiple stops at same intersection)
+    const calculateTransitScore = (zone5: number, zone10: number, zone15: number, maxRawBenchmark: number = 10): number => {
+        // Calculate raw score using square roots (diminishing returns)
+        const rawScore = Math.sqrt(zone5) * 1.0 + Math.sqrt(zone10) * 0.4 + Math.sqrt(zone15) * 0.1;
+        
+        // Normalize to 1-5 scale
+        const normalizedScore = 1 + (4 * (rawScore / maxRawBenchmark));
+        
+        // Constrain to 1-5 range
+        const finalScore = Math.max(1, Math.min(5, normalizedScore));
+        
+        return finalScore;
+    };
 
     // Get available layers that can be used as indicators
     const availableLayers = useMemo(() => {
@@ -553,7 +589,7 @@ export const ResearchView: React.FC<ResearchViewProps> = ({
                 return;
             }
             
-            const filteredFeatures = filterFeaturesByPolygon(greenSpaceLayer.data.features, boundaryPolygon);
+            const filteredFeatures = filterFeaturesByPolygon(greenSpaceLayer.data.features, boundaryPolygon as Feature<Polygon | MultiPolygon>);
             
             if (filteredFeatures.length === 0) {
                 alert('No gardens found within the 15-minute walking area. Try a different location with nearby parks.');
@@ -808,6 +844,448 @@ export const ResearchView: React.FC<ResearchViewProps> = ({
         };
     }, [indicators]);
 
+    // Analysis handlers for table rows
+    const handleIsochroneAreaAnalysis = async () => {
+        if (!samplePointLocation) {
+            alert('Please select a point on the map first');
+            return;
+        }
+
+        setRunningAnalysis('isochroneArea');
+        
+        try {
+            console.log('📊 Running Isochrone Area Analysis...');
+            
+            // Generate 5, 10, 15 minute isochrones using gisToolbox
+            const isochronesGeoJSON = await generateWalkingIsochrones(
+                [samplePointLocation.lng, samplePointLocation.lat],
+                [5, 10, 15]
+            );
+
+            if (!isochronesGeoJSON.features || isochronesGeoJSON.features.length === 0) {
+                alert('Failed to generate isochrones');
+                return;
+            }
+
+            console.log('🗺️ Generated isochrones:', isochronesGeoJSON.features.length, 'zones');
+
+            // Calculate area for each zone
+            const areas = {
+                zone5: 0,
+                zone10: 0,
+                zone15: 0
+            };
+
+            isochronesGeoJSON.features.forEach(feature => {
+                const minutes = feature.properties?.walkingMinutes || feature.properties?.contour || 0;
+                const area = turf.area(feature);
+
+                if (minutes <= 5) {
+                    areas.zone5 = area;
+                } else if (minutes <= 10) {
+                    areas.zone10 = area;
+                } else if (minutes <= 15) {
+                    areas.zone15 = area;
+                }
+            });
+
+            console.log('✅ Isochrone areas calculated:', areas);
+
+            // Store isochrones for reuse in gardens analysis
+            setStoredIsochrones(isochronesGeoJSON);
+
+            // Display the 3 isochrones on the map
+            if (onAddLayer) {
+                const isochroneLayer: Layer = {
+                    id: `isochrone-analysis-${Date.now()}`,
+                    name: `🚶 Walking Isochrones (5, 10, 15 min)`,
+                    visible: true,
+                    data: {
+                        type: 'FeatureCollection',
+                        features: isochronesGeoJSON.features
+                    },
+                    color: '#3b82f6',
+                    opacity: 0.3,
+                    type: 'polygon',
+                    grid: { show: false, showLabels: false, size: 1, opacity: 0.5 },
+                    lastUpdated: Date.now()
+                };
+                onAddLayer(isochroneLayer);
+                console.log('✅ Isochrones added to map');
+            }
+
+            setAnalysisResults(prev => ({
+                ...prev,
+                isochroneArea: areas
+            }));
+
+        } catch (error) {
+            console.error('❌ Error in isochrone area analysis:', error);
+            alert('Failed to calculate isochrone areas');
+        } finally {
+            setRunningAnalysis(null);
+        }
+    };
+
+    const handleGardensAnalysis = async () => {
+        if (!samplePointLocation) {
+            alert('Please select a point on the map first');
+            return;
+        }
+
+        // Check if isochrone area analysis was run first
+        if (!storedIsochrones) {
+            alert('Please run Isochrone Area analysis first');
+            return;
+        }
+
+        setRunningAnalysis('gardens');
+        
+        try {
+            console.log('🌳 Running Gardens Analysis...');
+            
+            // Step 1: Take isochrone from isochrone area analysis
+            console.log('📍 Step 1: Using stored isochrones from previous analysis');
+            const isochronesGeoJSON = storedIsochrones;
+            
+            // Step 2: Duplicate layer
+            console.log('📋 Step 2: Duplicating isochrone layer');
+            const duplicatedIsochrones = duplicateLayer(isochronesGeoJSON) as any;
+            
+            // Step 3: Separate into 3 individual zone layers
+            console.log('✂️ Step 3: Separating isochrones into individual zones');
+            const separatedZones = separateIsochroneLayers(duplicatedIsochrones);
+            const [zone5Layer, zone10Layer, zone15Layer] = separatedZones;
+            
+            console.log('✅ Separated into 3 zones:', {
+                zone5: zone5Layer.features[0]?.properties?.walkingMinutes,
+                zone10: zone10Layer.features[0]?.properties?.walkingMinutes,
+                zone15: zone15Layer.features[0]?.properties?.walkingMinutes
+            });
+            
+            // Step 4: Fetch garden layer from Tel Aviv GIS
+            console.log('🌳 Step 4: Fetching garden layer from Tel Aviv GIS...');
+            const gardenUrl = 'https://gisn.tel-aviv.gov.il/arcgis/rest/services/IView2/MapServer/503/query?where=1%3D1&outFields=*&f=geojson';
+            
+            const response = await fetch(gardenUrl);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch gardens: ${response.statusText}`);
+            }
+            
+            const gardenData = await response.json();
+            console.log('✅ Fetched garden layer:', gardenData.features.length, 'features');
+            
+            // Add original garden layer to map
+            if (onAddLayer) {
+                const gardenLayer: Layer = {
+                    id: `gardens-original-${Date.now()}`,
+                    name: `🌳 Tel Aviv Gardens (Original)`,
+                    visible: true,
+                    data: gardenData,
+                    color: '#22c55e',
+                    opacity: 0.4,
+                    type: 'polygon',
+                    grid: { show: false, showLabels: false, size: 1, opacity: 0.5 },
+                    lastUpdated: Date.now()
+                };
+                onAddLayer(gardenLayer);
+            }
+            
+            // Step 5: Duplicate garden layer 3 times
+            console.log('📋 Step 5: Duplicating garden layer 3 times');
+            const gardenCopy1 = duplicateLayer(gardenData) as any;
+            const gardenCopy2 = duplicateLayer(gardenData) as any;
+            const gardenCopy3 = duplicateLayer(gardenData) as any;
+            
+            // Step 6: Clip each garden copy by corresponding zone
+            console.log('✂️ Step 6: Clipping gardens by each zone...');
+            
+            // Clip copy 1 by zone 5
+            const zone5Polygon = zone5Layer.features[0] as Feature<Polygon | MultiPolygon>;
+            const clippedGarden5 = clip(gardenCopy1.features, zone5Polygon);
+            console.log('✅ Clipped zone 5:', clippedGarden5.length, 'features');
+            
+            // Clip copy 2 by zone 10
+            const zone10Polygon = zone10Layer.features[0] as Feature<Polygon | MultiPolygon>;
+            const clippedGarden10 = clip(gardenCopy2.features, zone10Polygon);
+            console.log('✅ Clipped zone 10:', clippedGarden10.length, 'features');
+            
+            // Clip copy 3 by zone 15
+            const zone15Polygon = zone15Layer.features[0] as Feature<Polygon | MultiPolygon>;
+            const clippedGarden15 = clip(gardenCopy3.features, zone15Polygon);
+            console.log('✅ Clipped zone 15:', clippedGarden15.length, 'features');
+            
+            // Step 7: Calculate area for each clipped layer
+            console.log('📏 Step 7: Calculating areas...');
+            
+            const area5 = clippedGarden5.reduce((sum, feature) => {
+                return sum + calculateArea(feature as Feature<Polygon | MultiPolygon>);
+            }, 0);
+            
+            const area10 = clippedGarden10.reduce((sum, feature) => {
+                return sum + calculateArea(feature as Feature<Polygon | MultiPolygon>);
+            }, 0);
+            
+            const area15 = clippedGarden15.reduce((sum, feature) => {
+                return sum + calculateArea(feature as Feature<Polygon | MultiPolygon>);
+            }, 0);
+            
+            const gardenAreas = {
+                zone5: area5,
+                zone10: area10,
+                zone15: area15
+            };
+            
+            console.log('✅ Garden areas calculated:', gardenAreas);
+            
+            // Calculate scores: (garden area / isochrone area) * 100 * multiplier, max 5
+            const calculateScore = (gardenArea: number, isochroneArea: number, multiplier: number): number => {
+                if (!isochroneArea || isochroneArea === 0) return 0;
+                const score = (gardenArea / isochroneArea) * 100 * multiplier;
+                return Math.min(score, 5); // Cap at 5
+            };
+            
+            const gardenScores = {
+                zone5: calculateScore(area5, analysisResults.isochroneArea.zone5 || 0, 1.0),
+                zone10: calculateScore(area10, analysisResults.isochroneArea.zone10 || 0, 0.7),
+                zone15: calculateScore(area15, analysisResults.isochroneArea.zone15 || 0, 0.3)
+            };
+            
+            console.log('✅ Garden scores calculated:', gardenScores);
+            
+            // Step 8: Don't delete layers - add clipped layers to map
+            if (onAddLayer) {
+                // Add clipped garden zone 5
+                const clippedLayer5: Layer = {
+                    id: `gardens-zone5-${Date.now()}`,
+                    name: `🌳 Gardens in Zone 5 min`,
+                    visible: true,
+                    data: { type: 'FeatureCollection', features: clippedGarden5 },
+                    color: '#22c55e',
+                    opacity: 0.6,
+                    type: 'polygon',
+                    grid: { show: false, showLabels: false, size: 1, opacity: 0.5 },
+                    lastUpdated: Date.now()
+                };
+                onAddLayer(clippedLayer5);
+                
+                // Add clipped garden zone 10
+                const clippedLayer10: Layer = {
+                    id: `gardens-zone10-${Date.now()}`,
+                    name: `🌳 Gardens in Zone 10 min`,
+                    visible: true,
+                    data: { type: 'FeatureCollection', features: clippedGarden10 },
+                    color: '#eab308',
+                    opacity: 0.6,
+                    type: 'polygon',
+                    grid: { show: false, showLabels: false, size: 1, opacity: 0.5 },
+                    lastUpdated: Date.now()
+                };
+                onAddLayer(clippedLayer10);
+                
+                // Add clipped garden zone 15
+                const clippedLayer15: Layer = {
+                    id: `gardens-zone15-${Date.now()}`,
+                    name: `🌳 Gardens in Zone 15 min`,
+                    visible: true,
+                    data: { type: 'FeatureCollection', features: clippedGarden15 },
+                    color: '#f97316',
+                    opacity: 0.6,
+                    type: 'polygon',
+                    grid: { show: false, showLabels: false, size: 1, opacity: 0.5 },
+                    lastUpdated: Date.now()
+                };
+                onAddLayer(clippedLayer15);
+                
+                console.log('✅ All clipped garden layers added to map');
+            }
+            
+            // Update table with results
+            setAnalysisResults(prev => ({
+                ...prev,
+                gardens: gardenAreas,
+                gardenScores: gardenScores
+            }));
+
+        } catch (error) {
+            console.error('❌ Error in gardens analysis:', error);
+            alert(`Failed to calculate garden areas: ${error}`);
+        } finally {
+            setRunningAnalysis(null);
+        }
+    };
+
+    const handleBusStationsAnalysis = async () => {
+        if (!samplePointLocation) {
+            alert('Please select a point on the map first');
+            return;
+        }
+
+        // Check if isochrone area analysis was run first
+        if (!storedIsochrones) {
+            alert('Please run Isochrone Area analysis first');
+            return;
+        }
+
+        setRunningAnalysis('busStations');
+        
+        try {
+            console.log('🚍 Running Bus Stations Analysis...');
+            
+            // Step 1: Fetch bus station layer from Tel Aviv GIS
+            console.log('🚍 Step 1: Fetching bus station layer from Tel Aviv GIS...');
+            const busUrl = 'https://gisn.tel-aviv.gov.il/arcgis/rest/services/IView2/MapServer/956/query?where=1%3D1&outFields=*&f=geojson';
+            
+            const response = await fetch(busUrl);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch bus stations: ${response.statusText}`);
+            }
+            
+            const busData = await response.json();
+            console.log('✅ Fetched bus station layer:', busData.features.length, 'features');
+            
+            // Add original bus station layer to map
+            if (onAddLayer) {
+                const busLayer: Layer = {
+                    id: `bus-stations-original-${Date.now()}`,
+                    name: `🚍 Tel Aviv Bus Stations (Original)`,
+                    visible: true,
+                    data: busData,
+                    color: '#3b82f6',
+                    opacity: 0.8,
+                    type: 'point',
+                    grid: { show: false, showLabels: false, size: 1, opacity: 0.5 },
+                    lastUpdated: Date.now()
+                };
+                onAddLayer(busLayer);
+            }
+            
+            // Step 2: Get isochrones from isochrone area analysis
+            console.log('📍 Step 2: Using stored isochrones from previous analysis');
+            const isochronesGeoJSON = storedIsochrones;
+            
+            // Separate into 3 individual zone layers
+            const separatedZones = separateIsochroneLayers(isochronesGeoJSON);
+            const [zone5Layer, zone10Layer, zone15Layer] = separatedZones;
+            
+            const zone5Polygon = zone5Layer.features[0] as Feature<Polygon | MultiPolygon>;
+            const zone10Polygon = zone10Layer.features[0] as Feature<Polygon | MultiPolygon>;
+            const zone15Polygon = zone15Layer.features[0] as Feature<Polygon | MultiPolygon>;
+            
+            console.log('✅ Separated zones ready for clipping');
+            
+            // Step 3: Create unique bus station points per zone using clip and difference
+            console.log('✂️ Step 3: Creating unique bus points per zone...');
+            
+            // Zone 5 (innermost): Just clip with zone 5
+            const busInZone5 = clip(busData.features, zone5Polygon);
+            console.log('✅ Zone 5 buses:', busInZone5.length, 'stations');
+            
+            // Zone 10 (middle ring): Clip with zone 10, then remove buses inside zone 5
+            const busInZone10Full = clip(busData.features, zone10Polygon);
+            const busInZone10 = difference(busInZone10Full, zone5Polygon);
+            console.log('✅ Zone 10 buses (ring only):', busInZone10.length, 'stations');
+            
+            // Zone 15 (outer ring): Clip with zone 15, then remove buses inside zone 10
+            const busInZone15Full = clip(busData.features, zone15Polygon);
+            const busInZone15 = difference(busInZone15Full, zone10Polygon);
+            console.log('✅ Zone 15 buses (ring only):', busInZone15.length, 'stations');
+            
+            // Add clipped bus station layers to map
+            if (onAddLayer) {
+                // Add bus stations in zone 5
+                const busLayer5: Layer = {
+                    id: `bus-zone5-${Date.now()}`,
+                    name: `🚍 Bus Stations in Zone 5 min`,
+                    visible: true,
+                    data: { type: 'FeatureCollection', features: busInZone5 },
+                    color: '#22c55e',
+                    opacity: 0.9,
+                    type: 'point',
+                    grid: { show: false, showLabels: false, size: 1, opacity: 0.5 },
+                    lastUpdated: Date.now()
+                };
+                onAddLayer(busLayer5);
+                
+                // Add bus stations in zone 10
+                const busLayer10: Layer = {
+                    id: `bus-zone10-${Date.now()}`,
+                    name: `🚍 Bus Stations in Zone 10 min`,
+                    visible: true,
+                    data: { type: 'FeatureCollection', features: busInZone10 },
+                    color: '#eab308',
+                    opacity: 0.9,
+                    type: 'point',
+                    grid: { show: false, showLabels: false, size: 1, opacity: 0.5 },
+                    lastUpdated: Date.now()
+                };
+                onAddLayer(busLayer10);
+                
+                // Add bus stations in zone 15
+                const busLayer15: Layer = {
+                    id: `bus-zone15-${Date.now()}`,
+                    name: `🚍 Bus Stations in Zone 15 min`,
+                    visible: true,
+                    data: { type: 'FeatureCollection', features: busInZone15 },
+                    color: '#f97316',
+                    opacity: 0.9,
+                    type: 'point',
+                    grid: { show: false, showLabels: false, size: 1, opacity: 0.5 },
+                    lastUpdated: Date.now()
+                };
+                onAddLayer(busLayer15);
+                
+                console.log('✅ All bus station layers added to map');
+            }
+            
+            // Update table with counts
+            const busStationCounts = {
+                zone5: busInZone5.length,
+                zone10: busInZone10.length,
+                zone15: busInZone15.length
+            };
+            
+            console.log('✅ Bus station counts:', busStationCounts);
+            
+            // Calculate transit score using the formula
+            const totalScore = calculateTransitScore(
+                busStationCounts.zone5,
+                busStationCounts.zone10,
+                busStationCounts.zone15
+            );
+            
+            // Calculate individual zone contributions for tooltip
+            const zone5Score = Math.sqrt(busStationCounts.zone5) * 1.0;
+            const zone10Score = Math.sqrt(busStationCounts.zone10) * 0.4;
+            const zone15Score = Math.sqrt(busStationCounts.zone15) * 0.1;
+            
+            const busStationScores = {
+                zone5: zone5Score,
+                zone10: zone10Score,
+                zone15: zone15Score
+            };
+            
+            console.log('✅ Transit scores:', {
+                zone5: zone5Score.toFixed(2),
+                zone10: zone10Score.toFixed(2),
+                zone15: zone15Score.toFixed(2),
+                total: totalScore.toFixed(2)
+            });
+            
+            setAnalysisResults(prev => ({
+                ...prev,
+                busStations: busStationCounts,
+                busStationScores: busStationScores
+            }));
+
+        } catch (error) {
+            console.error('❌ Error in bus stations analysis:', error);
+            alert(`Failed to analyze bus stations: ${error}`);
+        } finally {
+            setRunningAnalysis(null);
+        }
+    };
+
     return (
         <div className="h-full flex flex-col bg-slate-50">
             {/* Header */}
@@ -1058,350 +1536,304 @@ export const ResearchView: React.FC<ResearchViewProps> = ({
                     </div>
                 </section>
 
-                {/* Results Section - Moved here between Sample Point and Category Weights */}
-                {calculationResults && (
-                    <section className="bg-white rounded-xl border border-slate-200 p-5">
-                        <h3 className="font-bold text-slate-800 mb-4">Analysis Results</h3>
-                        
-                        <div className="space-y-4">
-                            {/* Total Score */}
-                            <div className="p-4 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg text-white">
-                                <div className="text-sm font-medium mb-1">Overall Quality Score</div>
-                                <div className="text-4xl font-bold">
-                                    {calculationResults.totalScore.toFixed(2)} / 5.00
-                                </div>
-                                <div className="text-xs mt-2 opacity-90">
-                                    Based on weighted multi-criteria analysis
-                                </div>
-                            </div>
-
-                            {/* Feature Counts by Zone */}
-                            {calculationResults.featureCounts && (
-                                <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
-                                    <div className="text-xs font-semibold text-slate-700 mb-2">Features by Walking Zone</div>
-                                    <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                                        <div className="p-2 bg-green-100 rounded">
-                                            <div className="font-bold text-green-700">{calculationResults.featureCounts.zoneA}</div>
-                                            <div className="text-green-600">0-5 min</div>
-                                        </div>
-                                        <div className="p-2 bg-yellow-100 rounded">
-                                            <div className="font-bold text-yellow-700">{calculationResults.featureCounts.zoneB}</div>
-                                            <div className="text-yellow-600">5-10 min</div>
-                                        </div>
-                                        <div className="p-2 bg-orange-100 rounded">
-                                            <div className="font-bold text-orange-700">{calculationResults.featureCounts.zoneC}</div>
-                                            <div className="text-orange-600">10-15 min</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Category Breakdown */}
-                            <div className="grid grid-cols-2 gap-3">
-                                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                                    <div className="text-xs text-blue-600 font-medium mb-1">Urban</div>
-                                    <div className="text-2xl font-bold text-blue-700">
-                                        {calculationResults.categoryScores.urban.toFixed(2)}
-                                    </div>
-                                </div>
-                                
-                                <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                                    <div className="text-xs text-green-600 font-medium mb-1">Social</div>
-                                    <div className="text-2xl font-bold text-green-700">
-                                        {calculationResults.categoryScores.social.toFixed(2)}
-                                    </div>
-                                </div>
-                                
-                                <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
-                                    <div className="text-xs text-orange-600 font-medium mb-1">Economic</div>
-                                    <div className="text-2xl font-bold text-orange-700">
-                                        {calculationResults.categoryScores.economic.toFixed(2)}
-                                    </div>
-                                </div>
-                                
-                                <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
-                                    <div className="text-xs text-purple-600 font-medium mb-1">Historical</div>
-                                    <div className="text-2xl font-bold text-purple-700">
-                                        {calculationResults.categoryScores.historical.toFixed(2)}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Category Point Counts */}
-                            {categorizedPoints && (
-                                <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
-                                    <div className="text-xs font-semibold text-slate-700 mb-2">Points by Category</div>
-                                    <div className="grid grid-cols-2 gap-2 text-xs">
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-                                            <span>Urban: {categorizedPoints.urban.length}</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                                            <span>Social: {categorizedPoints.social.length}</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-3 h-3 rounded-full bg-orange-500"></div>
-                                            <span>Economic: {categorizedPoints.economic.length}</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-3 h-3 rounded-full bg-purple-500"></div>
-                                            <span>Historical: {categorizedPoints.historical.length}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </section>
-                )}
-
-                {/* Category Weights */}
+                {/* Analysis Table */}
                 <section className="bg-white rounded-xl border border-slate-200 p-5">
                     <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                        <Sliders size={18} className="text-indigo-600" />
-                        Category Weights
+                        <Info size={18} className="text-indigo-600" />
+                        Analysis Results by Zone
                     </h3>
                     
-                    <div className="mb-4 p-2 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="overflow-x-auto">
+                        <table className="w-full border-collapse">
+                            <thead>
+                                <tr className="bg-slate-50 border-b-2 border-slate-200">
+                                    <th className="text-left p-3 font-semibold text-slate-700">Subcategory</th>
+                                    <th className="text-center p-3 font-semibold text-green-700">Zone 5 min</th>
+                                    <th className="text-center p-3 font-semibold text-yellow-700">Zone 10 min</th>
+                                    <th className="text-center p-3 font-semibold text-orange-700">Zone 15 min</th>
+                                    <th className="text-center p-3 font-semibold text-indigo-700">Score</th>
+                                    <th className="text-center p-3 font-semibold text-slate-700">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {/* Isochrone Area Row */}
+                                <tr className="border-b border-slate-200 hover:bg-slate-50 transition-colors">
+                                    <td className="p-3 font-medium text-slate-800">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-8 h-8 bg-blue-100 rounded flex items-center justify-center">
+                                                <MapPin size={16} className="text-blue-600" />
+                                            </div>
+                                            <span>Isochrone Area</span>
+                                        </div>
+                                    </td>
+                                    <td className="p-3 text-center">
+                                        {analysisResults.isochroneArea.zone5 !== null ? (
+                                            <div className="bg-green-50 px-3 py-2 rounded inline-block">
+                                                <div className="font-bold text-green-700">
+                                                    {(analysisResults.isochroneArea.zone5 / 1000000).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                                </div>
+                                                <div className="text-xs text-green-600">km²</div>
+                                            </div>
+                                        ) : (
+                                            <span className="text-slate-400 text-sm">No data</span>
+                                        )}
+                                    </td>
+                                    <td className="p-3 text-center">
+                                        {analysisResults.isochroneArea.zone10 !== null ? (
+                                            <div className="bg-yellow-50 px-3 py-2 rounded inline-block">
+                                                <div className="font-bold text-yellow-700">
+                                                    {(analysisResults.isochroneArea.zone10 / 1000000).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                                </div>
+                                                <div className="text-xs text-yellow-600">km²</div>
+                                            </div>
+                                        ) : (
+                                            <span className="text-slate-400 text-sm">No data</span>
+                                        )}
+                                    </td>
+                                    <td className="p-3 text-center">
+                                        {analysisResults.isochroneArea.zone15 !== null ? (
+                                            <div className="bg-orange-50 px-3 py-2 rounded inline-block">
+                                                <div className="font-bold text-orange-700">
+                                                    {(analysisResults.isochroneArea.zone15 / 1000000).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                                </div>
+                                                <div className="text-xs text-orange-600">km²</div>
+                                            </div>
+                                        ) : (
+                                            <span className="text-slate-400 text-sm">No data</span>
+                                        )}
+                                    </td>
+                                    <td className="p-3 text-center">
+                                        <span className="text-slate-400 text-sm">-</span>
+                                    </td>
+                                    <td className="p-3 text-center">
+                                        <button
+                                            onClick={handleIsochroneAreaAnalysis}
+                                            disabled={!samplePointLocation || runningAnalysis === 'isochroneArea'}
+                                            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 mx-auto"
+                                        >
+                                            {runningAnalysis === 'isochroneArea' ? (
+                                                <>
+                                                    <Loader2 size={14} className="animate-spin" />
+                                                    Running...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Play size={14} />
+                                                    Run
+                                                </>
+                                            )}
+                                        </button>
+                                    </td>
+                                </tr>
+
+                                {/* Gardens Row */}
+                                <tr className="border-b border-slate-200 hover:bg-slate-50 transition-colors">
+                                    <td className="p-3 font-medium text-slate-800">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-8 h-8 bg-green-100 rounded flex items-center justify-center">
+                                                <span className="text-green-600">🌳</span>
+                                            </div>
+                                            <span>Gardens</span>
+                                        </div>
+                                    </td>
+                                    <td className="p-3 text-center">
+                                        {analysisResults.gardens.zone5 !== null ? (
+                                            <div className="bg-green-50 px-3 py-2 rounded inline-block">
+                                                <div className="font-bold text-green-700">
+                                                    {(analysisResults.gardens.zone5 / 1000000).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                                </div>
+                                                <div className="text-xs text-green-600">km²</div>
+                                            </div>
+                                        ) : (
+                                            <span className="text-slate-400 text-sm">No data</span>
+                                        )}
+                                    </td>
+                                    <td className="p-3 text-center">
+                                        {analysisResults.gardens.zone10 !== null ? (
+                                            <div className="bg-yellow-50 px-3 py-2 rounded inline-block">
+                                                <div className="font-bold text-yellow-700">
+                                                    {(analysisResults.gardens.zone10 / 1000000).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                                </div>
+                                                <div className="text-xs text-yellow-600">km²</div>
+                                            </div>
+                                        ) : (
+                                            <span className="text-slate-400 text-sm">No data</span>
+                                        )}
+                                    </td>
+                                    <td className="p-3 text-center">
+                                        {analysisResults.gardens.zone15 !== null ? (
+                                            <div className="bg-orange-50 px-3 py-2 rounded inline-block">
+                                                <div className="font-bold text-orange-700">
+                                                    {(analysisResults.gardens.zone15 / 1000000).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                                </div>
+                                                <div className="text-xs text-orange-600">km²</div>
+                                            </div>
+                                        ) : (
+                                            <span className="text-slate-400 text-sm">No data</span>
+                                        )}
+                                    </td>
+                                    <td className="p-3 text-center">
+                                        {analysisResults.gardenScores.zone5 !== null || analysisResults.gardenScores.zone10 !== null || analysisResults.gardenScores.zone15 !== null ? (
+                                            (() => {
+                                                const score5 = analysisResults.gardenScores.zone5 || 0;
+                                                const score10 = analysisResults.gardenScores.zone10 || 0;
+                                                const score15 = analysisResults.gardenScores.zone15 || 0;
+                                                const totalScore = Math.min(score5 + score10 + score15, 5);
+                                                const breakdown = `Zone 5: ${score5.toFixed(2)}\nZone 10: ${score10.toFixed(2)}\nZone 15: ${score15.toFixed(2)}`;
+                                                
+                                                return (
+                                                    <div 
+                                                        className="bg-indigo-50 px-4 py-2 rounded inline-block cursor-help transition-all hover:bg-indigo-100 hover:shadow-md"
+                                                        title={breakdown}
+                                                    >
+                                                        <div className="font-bold text-indigo-700 text-lg">
+                                                            {totalScore.toFixed(2)}
+                                                        </div>
+                                                        <div className="text-xs text-indigo-600">Total</div>
+                                                    </div>
+                                                );
+                                            })()
+                                        ) : (
+                                            <span className="text-slate-400 text-sm">No data</span>
+                                        )}
+                                    </td>
+                                    <td className="p-3 text-center">
+                                        <button
+                                            onClick={handleGardensAnalysis}
+                                            disabled={!samplePointLocation || runningAnalysis === 'gardens'}
+                                            className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 mx-auto"
+                                        >
+                                            {runningAnalysis === 'gardens' ? (
+                                                <>
+                                                    <Loader2 size={14} className="animate-spin" />
+                                                    Running...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Play size={14} />
+                                                    Run
+                                                </>
+                                            )}
+                                        </button>
+                                    </td>
+                                </tr>
+
+                                {/* Bus Stations Row */}
+                                <tr className="border-b border-slate-200 hover:bg-slate-50 transition-colors">
+                                    <td className="p-3 font-medium text-slate-800">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-8 h-8 bg-blue-100 rounded flex items-center justify-center">
+                                                <Bus size={16} className="text-blue-600" />
+                                            </div>
+                                            <span>Bus Stations</span>
+                                        </div>
+                                    </td>
+                                    <td className="p-3 text-center">
+                                        {analysisResults.busStations.zone5 !== null ? (
+                                            <div className="bg-green-50 px-3 py-2 rounded inline-block">
+                                                <div className="font-bold text-green-700">
+                                                    {analysisResults.busStations.zone5}
+                                                </div>
+                                                <div className="text-xs text-green-600">stations</div>
+                                            </div>
+                                        ) : (
+                                            <span className="text-slate-400 text-sm">No data</span>
+                                        )}
+                                    </td>
+                                    <td className="p-3 text-center">
+                                        {analysisResults.busStations.zone10 !== null ? (
+                                            <div className="bg-yellow-50 px-3 py-2 rounded inline-block">
+                                                <div className="font-bold text-yellow-700">
+                                                    {analysisResults.busStations.zone10}
+                                                </div>
+                                                <div className="text-xs text-yellow-600">stations</div>
+                                            </div>
+                                        ) : (
+                                            <span className="text-slate-400 text-sm">No data</span>
+                                        )}
+                                    </td>
+                                    <td className="p-3 text-center">
+                                        {analysisResults.busStations.zone15 !== null ? (
+                                            <div className="bg-orange-50 px-3 py-2 rounded inline-block">
+                                                <div className="font-bold text-orange-700">
+                                                    {analysisResults.busStations.zone15}
+                                                </div>
+                                                <div className="text-xs text-orange-600">stations</div>
+                                            </div>
+                                        ) : (
+                                            <span className="text-slate-400 text-sm">No data</span>
+                                        )}
+                                    </td>
+                                    <td className="p-3 text-center">
+                                        {analysisResults.busStationScores.zone5 !== null ? (
+                                            <Tooltip title={
+                                                <div className="text-xs">
+                                                    <div className="font-semibold mb-1">Transit Score Breakdown:</div>
+                                                    <div>Zone 5 min: {analysisResults.busStationScores.zone5.toFixed(2)}</div>
+                                                    <div>Zone 10 min: {analysisResults.busStationScores.zone10!.toFixed(2)}</div>
+                                                    <div>Zone 15 min: {analysisResults.busStationScores.zone15!.toFixed(2)}</div>
+                                                    <div className="mt-1 pt-1 border-t border-white/20">
+                                                        Total: {(
+                                                            analysisResults.busStationScores.zone5 +
+                                                            analysisResults.busStationScores.zone10! +
+                                                            analysisResults.busStationScores.zone15!
+                                                        ).toFixed(2)}
+                                                    </div>
+                                                    <div className="text-[10px] text-white/70 mt-1">
+                                                        Formula: √(zone5)×1.0 + √(zone10)×0.4 + √(zone15)×0.1<br />
+                                                        Normalized to 1-5 scale
+                                                    </div>
+                                                </div>
+                                            } arrow>
+                                                <div className="inline-flex items-center gap-1 cursor-help px-3 py-2 bg-purple-50 rounded-lg">
+                                                    <span className="font-bold text-purple-700 text-lg">
+                                                        {calculateTransitScore(
+                                                            analysisResults.busStations.zone5!,
+                                                            analysisResults.busStations.zone10!,
+                                                            analysisResults.busStations.zone15!
+                                                        ).toFixed(2)}
+                                                    </span>
+                                                    <span className="text-purple-600 text-xs">/5.00</span>
+                                                </div>
+                                            </Tooltip>
+                                        ) : (
+                                            <span className="text-slate-400 text-sm">-</span>
+                                        )}
+                                    </td>
+                                    <td className="p-3 text-center">
+                                        <button
+                                            onClick={handleBusStationsAnalysis}
+                                            disabled={!samplePointLocation || runningAnalysis === 'busStations'}
+                                            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 mx-auto"
+                                        >
+                                            {runningAnalysis === 'busStations' ? (
+                                                <>
+                                                    <Loader2 size={14} className="animate-spin" />
+                                                    Running...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Play size={14} />
+                                                    Run
+                                                </>
+                                            )}
+                                        </button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* Info note */}
+                    <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                         <p className="text-xs text-blue-700">
-                            💡 Weights automatically adjust to maintain 100% total. Changes are distributed proportionally across other categories.
+                            💡 Click "Run" button for each subcategory to calculate values for all three zones (5, 10, 15 minutes walking distance).
+                            Make sure you have selected a point on the map first.
                         </p>
                     </div>
-
-                    <div className="space-y-5">
-                        {/* Urban */}
-                        <div>
-                            <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                                        {getCategoryIcon('urban')}
-                                    </div>
-                                    <span className="font-medium text-slate-700">Urban Infrastructure</span>
-                                    <span className="text-xs text-slate-500">({enabledByCategory.urban} active)</span>
-                                </div>equally across the other 3
-                                <span className="font-bold text-blue-600">{weights.urban}%</span>
-                            </div>
-                            <Slider
-                                value={weights.urban}
-                                onChange={(_, value) => handleWeightChange('urban', value as number)}
-                                min={0}
-                                max={100}
-                                valueLabelDisplay="auto"
-                                sx={{
-                                    color: '#3b82f6',
-                                    '& .MuiSlider-thumb': {
-                                        backgroundColor: '#3b82f6'
-                                    }
-                                }}
-                            />
-                        </div>
-
-                        {/* Social */}
-                        <div>
-                            <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
-                                        {getCategoryIcon('social')}
-                                    </div>
-                                    <span className="font-medium text-slate-700">Social Services</span>
-                                    <span className="text-xs text-slate-500">({enabledByCategory.social} active)</span>
-                                </div>
-                                <span className="font-bold text-green-600">{weights.social}%</span>
-                            </div>
-                            <Slider
-                                value={weights.social}
-                                onChange={(_, value) => handleWeightChange('social', value as number)}
-                                min={0}
-                                max={100}
-                                valueLabelDisplay="auto"
-                                sx={{
-                                    color: '#22c55e',
-                                    '& .MuiSlider-thumb': {
-                                        backgroundColor: '#22c55e'
-                                    }
-                                }}
-                            />
-                        </div>
-
-                        {/* Economic */}
-                        <div>
-                            <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center">
-                                        {getCategoryIcon('economic')}
-                                    </div>
-                                    <span className="font-medium text-slate-700">Economic Vitality</span>
-                                    <span className="text-xs text-slate-500">({enabledByCategory.economic} active)</span>
-                                </div>
-                                <span className="font-bold text-orange-600">{weights.economic}%</span>
-                            </div>
-                            <Slider
-                                value={weights.economic}
-                                onChange={(_, value) => handleWeightChange('economic', value as number)}
-                                min={0}
-                                max={100}
-                                valueLabelDisplay="auto"
-                                sx={{
-                                    color: '#f97316',
-                                    '& .MuiSlider-thumb': {
-                                        backgroundColor: '#f97316'
-                                    }
-                                }}
-                            />
-                        </div>
-
-                        {/* Historical */}
-                        <div>
-                            <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
-                                        {getCategoryIcon('historical')}
-                                    </div>
-                                    <span className="font-medium text-slate-700">Historical & Cultural</span>
-                                    <span className="text-xs text-slate-500">({enabledByCategory.historical} active)</span>
-                                </div>
-                                <span className="font-bold text-purple-600">{weights.historical}%</span>
-                            </div>
-                            <Slider
-                                value={weights.historical}
-                                onChange={(_, value) => handleWeightChange('historical', value as number)}
-                                min={0}
-                                max={100}
-                                valueLabelDisplay="auto"
-                                sx={{
-                                    color: '#a855f7',
-                                    '& .MuiSlider-thumb': {
-                                        backgroundColor: '#a855f7'
-                                    }
-                                }}
-                            />
-                        </div>
-
-                        {/* Total Weight Display */}
-                        <div className="pt-4 border-t border-slate-200">
-                            <div className="flex items-center justify-between">
-                                <span className="text-sm font-medium text-slate-600">Total Weight</span>
-                                <span className={`font-bold ${
-                                    weights.urban + weights.social + weights.economic + weights.historical === 100
-                                        ? 'text-green-600'
-                                        : 'text-red-600'
-                                }`}>
-                                    {weights.urban + weights.social + weights.economic + weights.historical}%
-                                </span>
-                            </div>
-                        </div>
-                    </div>
                 </section>
 
-                {/* Indicator Selection */}
-                <section className="bg-white rounded-xl border border-slate-200 p-5">
-                    <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                        <Eye size={18} className="text-indigo-600" />
-                        Active Indicators ({indicators.filter(i => i.enabled).length}/{indicators.length})
-                    </h3>
-
-                    <div className="space-y-4">
-                        {['urban', 'social', 'economic', 'historical'].map((category) => {
-                            const categoryIndicators = indicators.filter(i => i.category === category);
-                            const colorClass = getCategoryColor(category);
-                            
-                            return (
-                                <div key={category} className="border border-slate-200 rounded-lg p-4">
-                                    <div className="flex items-center gap-2 mb-3">
-                                        <div className={`w-8 h-8 bg-${colorClass}-100 rounded-lg flex items-center justify-center`}>
-                                            {getCategoryIcon(category)}
-                                        </div>
-                                        <h4 className="font-semibold text-slate-700 capitalize">{category}</h4>
-                                    </div>
-                                    
-                                    <div className="space-y-2">
-                                        {categoryIndicators.map((indicator) => (
-                                            <div
-                                                key={indicator.id}
-                                                className="flex items-center justify-between p-2 hover:bg-slate-50 rounded transition-colors"
-                                            >
-                                                <div className="flex items-center gap-2 flex-1">
-                                                    <button
-                                                        onClick={() => toggleIndicator(indicator.id)}
-                                                        className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
-                                                            indicator.enabled
-                                                                ? `bg-${colorClass}-600 border-${colorClass}-600`
-                                                                : 'border-slate-300 bg-white'
-                                                        }`}
-                                                    >
-                                                        {indicator.enabled && (
-                                                            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                                            </svg>
-                                                        )}
-                                                    </button>
-                                                    <span className={`text-sm ${indicator.enabled ? 'text-slate-800 font-medium' : 'text-slate-500'}`}>
-                                                        {indicator.name}
-                                                    </span>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-xs text-slate-400">{indicator.dataSource}</span>
-                                                    <span className={`text-xs px-2 py-0.5 rounded-full ${
-                                                        indicator.zoneSensitivity === 'high'
-                                                            ? 'bg-red-100 text-red-700'
-                                                            : indicator.zoneSensitivity === 'medium'
-                                                            ? 'bg-yellow-100 text-yellow-700'
-                                                            : 'bg-green-100 text-green-700'
-                                                    }`}>
-                                                        {indicator.zoneSensitivity}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </section>
-
-                {/* Methodology Reference */}
-                <section className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-xl border border-slate-200 p-5">
-                    <h3 className="font-bold text-slate-800 mb-3">Walking Network Isochrones (Real Road Data)</h3>
-                    <div className="space-y-2 text-sm text-slate-600">
-                        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg mb-3">
-                            <div className="text-xs font-semibold text-blue-800 mb-1">🗺️ Using Mapbox Isochrone API</div>
-                            <div className="text-xs text-blue-700">
-                                Analysis is based on actual walking paths along real streets and roads, not simple circular buffers.
-                            </div>
-                        </div>
-                        
-                        <div className="flex items-start gap-2">
-                            <div className="w-2 h-2 bg-green-500 rounded-full mt-1.5"></div>
-                            <div>
-                                <strong>5-min Walk:</strong> Immediate proximity. High impact on daily life. 
-                                <span className="text-green-700 font-mono ml-2">Multiplier: ×1.0</span>
-                            </div>
-                        </div>
-                        <div className="flex items-start gap-2">
-                            <div className="w-2 h-2 bg-yellow-500 rounded-full mt-1.5"></div>
-                            <div>
-                                <strong>10-min Walk:</strong> Short walk. Moderate impact. 
-                                <span className="text-yellow-700 font-mono ml-2">Multiplier: ×0.6</span>
-                            </div>
-                        </div>
-                        <div className="flex items-start gap-2">
-                            <div className="w-2 h-2 bg-orange-500 rounded-full mt-1.5"></div>
-                            <div>
-                                <strong>15-min Walk:</strong> Edge of accessibility. Lower impact. 
-                                <span className="text-orange-700 font-mono ml-2">Multiplier: ×0.3</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="mt-4 p-3 bg-white rounded border border-slate-200">
-                        <div className="text-xs font-mono text-slate-600">
-                            S<sub>indicator</sub> = Σ(Score × ZoneMultiplier) / Σ(ZoneMultipliers)
-                        </div>
-                        <div className="text-xs font-mono text-slate-600 mt-1">
-                            S<sub>total</sub> = (W<sub>urban</sub> · S̄<sub>urban</sub>) + (W<sub>social</sub> · S̄<sub>social</sub>) + (W<sub>econ</sub> · S̄<sub>econ</sub>) + (W<sub>hist</sub> · S̄<sub>hist</sub>)
-                        </div>
-                    </div>
-                </section>
+                {/* More sections coming soon... */}
             </div>
         </div>
     );
