@@ -85,6 +85,21 @@ export default function App() {
   const [isPickingResearchPoint, setIsPickingResearchPoint] = useState(false);
   const [researchPointLocation, setResearchPointLocation] = useState<{lat: number, lng: number} | null>(null);
   const [researchIsochrones, setResearchIsochrones] = useState<Feature[] | null>(null);
+  const [researchAnalysisResults, setResearchAnalysisResults] = useState<{
+    isochroneArea: { zone5: number | null; zone10: number | null; zone15: number | null };
+    gardens: { zone5: number | null; zone10: number | null; zone15: number | null };
+    gardenScores: { zone5: number | null; zone10: number | null; zone15: number | null };
+    busStations: { zone5: number | null; zone10: number | null; zone15: number | null };
+    busStationScores: { zone5: number | null; zone10: number | null; zone15: number | null };
+  }>({
+    isochroneArea: { zone5: null, zone10: null, zone15: null },
+    gardens: { zone5: null, zone10: null, zone15: null },
+    gardenScores: { zone5: null, zone10: null, zone15: null },
+    busStations: { zone5: null, zone10: null, zone15: null },
+    busStationScores: { zone5: null, zone10: null, zone15: null }
+  });
+  const [researchStoredIsochrones, setResearchStoredIsochrones] = useState<any>(null);
+  const [researchRunningAnalysis, setResearchRunningAnalysis] = useState<string | null>(null);
 
   // Analyze State
   const [analyzedLayerId, setAnalyzedLayerId] = useState<string | null>(null);
@@ -1118,7 +1133,12 @@ export default function App() {
                     onSetIsPickingPoint={setIsPickingResearchPoint}
                     samplePointLocation={researchPointLocation}
                     onSetSamplePointLocation={setResearchPointLocation}
-                    onSetResearchIsochrones={setResearchIsochrones}
+                    analysisResults={researchAnalysisResults}
+                    onSetAnalysisResults={setResearchAnalysisResults}
+                    storedIsochrones={researchStoredIsochrones}
+                    onSetStoredIsochrones={setResearchStoredIsochrones}
+                    runningAnalysis={researchRunningAnalysis}
+                    onSetRunningAnalysis={setResearchRunningAnalysis}
                 />
              </div>
           )}

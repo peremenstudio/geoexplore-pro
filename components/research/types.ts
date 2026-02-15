@@ -9,7 +9,12 @@ export interface ResearchViewProps {
     onSetIsPickingPoint: (value: boolean) => void;
     samplePointLocation: { lat: number; lng: number } | null;
     onSetSamplePointLocation: (location: { lat: number; lng: number } | null) => void;
-    onSetResearchIsochrones?: (features: Feature[] | null) => void;
+    analysisResults: AnalysisResults;
+    onSetAnalysisResults: React.Dispatch<React.SetStateAction<AnalysisResults>>;
+    storedIsochrones: any;
+    onSetStoredIsochrones: React.Dispatch<React.SetStateAction<any>>;
+    runningAnalysis: string | null;
+    onSetRunningAnalysis: React.Dispatch<React.SetStateAction<string | null>>;
 }
 
 export interface CategoryWeights {

@@ -105,6 +105,7 @@ export const runGardensAnalysis = async ({
         const calculateScore = (gardenArea: number, isochroneArea: number, multiplier: number): number => {
             if (!isochroneArea || isochroneArea === 0) return 0;
             const score = (gardenArea / isochroneArea) * 100 * multiplier;
+            // Cap score at maximum of 5
             return Math.min(score, 5);
         };
         

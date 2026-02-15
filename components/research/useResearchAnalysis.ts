@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Layer } from '../../types';
 import { AnalysisResults } from './types';
 import { 
@@ -11,22 +10,25 @@ interface UseResearchAnalysisProps {
     layers: Layer[];
     onAddLayer?: (layer: Layer) => void;
     onRemoveLayer?: (layerId: string) => void;
+    analysisResults: AnalysisResults;
+    setAnalysisResults: React.Dispatch<React.SetStateAction<AnalysisResults>>;
+    storedIsochrones: any;
+    setStoredIsochrones: React.Dispatch<React.SetStateAction<any>>;
+    runningAnalysis: string | null;
+    setRunningAnalysis: React.Dispatch<React.SetStateAction<string | null>>;
 }
 
 export const useResearchAnalysis = ({
     layers,
     onAddLayer,
-    onRemoveLayer
+    onRemoveLayer,
+    analysisResults,
+    setAnalysisResults,
+    storedIsochrones,
+    setStoredIsochrones,
+    runningAnalysis,
+    setRunningAnalysis
 }: UseResearchAnalysisProps) => {
-    const [analysisResults, setAnalysisResults] = useState<AnalysisResults>({
-        isochroneArea: { zone5: null, zone10: null, zone15: null },
-        gardens: { zone5: null, zone10: null, zone15: null },
-        gardenScores: { zone5: null, zone10: null, zone15: null },
-        busStations: { zone5: null, zone10: null, zone15: null },
-        busStationScores: { zone5: null, zone10: null, zone15: null }
-    });
-    const [runningAnalysis, setRunningAnalysis] = useState<string | null>(null);
-    const [storedIsochrones, setStoredIsochrones] = useState<any>(null);
 
     // Calculate transit score from bus station counts
     const calculateTransitScore = (

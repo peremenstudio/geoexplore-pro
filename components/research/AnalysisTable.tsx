@@ -169,20 +169,22 @@ export const AnalysisTable: React.FC<AnalysisTableProps> = ({
                                             <div>Zone 10 min: {analysisResults.gardenScores.zone10!.toFixed(2)}</div>
                                             <div>Zone 15 min: {analysisResults.gardenScores.zone15!.toFixed(2)}</div>
                                             <div className="mt-1 pt-1 border-t border-white/20">
-                                                Total: {(
+                                                Total: {Math.min(
                                                     analysisResults.gardenScores.zone5 +
                                                     analysisResults.gardenScores.zone10! +
-                                                    analysisResults.gardenScores.zone15!
+                                                    analysisResults.gardenScores.zone15!,
+                                                    5
                                                 ).toFixed(2)}
                                             </div>
                                         </div>
                                     } arrow>
                                         <div className="inline-flex items-center gap-1 cursor-help px-3 py-2 bg-green-50 rounded-lg">
                                             <span className="font-bold text-green-700 text-lg">
-                                                {(
+                                                {Math.min(
                                                     analysisResults.gardenScores.zone5 +
                                                     analysisResults.gardenScores.zone10! +
-                                                    analysisResults.gardenScores.zone15!
+                                                    analysisResults.gardenScores.zone15!,
+                                                    5
                                                 ).toFixed(2)}
                                             </span>
                                             <span className="text-green-600 text-xs">/5.00</span>

@@ -21,7 +21,13 @@ export const ResearchView: React.FC<ResearchViewProps> = ({
     isPickingPoint,
     onSetIsPickingPoint,
     samplePointLocation,
-    onSetSamplePointLocation
+    onSetSamplePointLocation,
+    analysisResults: externalAnalysisResults,
+    onSetAnalysisResults,
+    storedIsochrones: externalStoredIsochrones,
+    onSetStoredIsochrones,
+    runningAnalysis: externalRunningAnalysis,
+    onSetRunningAnalysis
 }) => {
     // Category weights (0-100)
     const [weights, setWeights] = useState<CategoryWeights>(DEFAULT_WEIGHTS);
@@ -45,7 +51,13 @@ export const ResearchView: React.FC<ResearchViewProps> = ({
     } = useResearchAnalysis({
         layers,
         onAddLayer,
-        onRemoveLayer
+        onRemoveLayer,
+        analysisResults: externalAnalysisResults,
+        setAnalysisResults: onSetAnalysisResults,
+        storedIsochrones: externalStoredIsochrones,
+        setStoredIsochrones: onSetStoredIsochrones,
+        runningAnalysis: externalRunningAnalysis,
+        setRunningAnalysis: onSetRunningAnalysis
     });
 
     // Handle weight change - ensure all weights sum to 100%
