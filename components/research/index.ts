@@ -8,6 +8,4 @@ export * from './constants';
 export { useResearchAnalysis } from './useResearchAnalysis';
 
 // UI Components
-export { ResearchHeader } from './ResearchHeader';
-export { StageProgress } from './StageProgress';
 export { AnalysisTable } from './AnalysisTable';

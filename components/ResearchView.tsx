@@ -11,8 +11,6 @@ import {
     DEFAULT_WEIGHTS,
     CITY_COORDINATES,
     useResearchAnalysis,
-    ResearchHeader,
-    StageProgress,
     AnalysisTable
 } from './research';
 
@@ -39,22 +37,12 @@ export const ResearchView: React.FC<ResearchViewProps> = ({
 
     // Use the research analysis hook
     const {
-        calculationResults,
-        isCalculating,
-        categorizedPoints,
-        currentStage,
-        stageData,
         analysisResults,
         runningAnalysis,
         calculateTransitScore,
-        handleRunResearch,
         handleIsochroneAreaAnalysis,
         handleGardensAnalysis,
-        handleBusStationsAnalysis,
-        setCalculationResults,
-        setCategorizedPoints,
-        setCurrentStage,
-        setStageData
+        handleBusStationsAnalysis
     } = useResearchAnalysis({
         layers,
         onAddLayer,
@@ -96,31 +84,19 @@ export const ResearchView: React.FC<ResearchViewProps> = ({
         ));
     };
 
-    // Clear analysis
-    const handleClearAnalysis = () => {
-        setCalculationResults(null);
-        setCategorizedPoints(null);
-        setCurrentStage(0);
-        setStageData({});
-        if (onSetResearchIsochrones) {
-            onSetResearchIsochrones(null);
-        }
-    };
-
     return (
         <div className="h-full flex flex-col bg-slate-50">
             {/* Header */}
-            <ResearchHeader
-                isCalculating={isCalculating}
-                samplePointLocation={samplePointLocation}
-                currentStage={currentStage}
-                onRunAnalysis={() => handleRunResearch(samplePointLocation, selectedCity)}
-                onClearAnalysis={handleClearAnalysis}
-            />
-
-            {/* Stage Progress */}
-            <div className="px-6">
-                <StageProgress currentStage={currentStage} stageData={stageData} />
+            <div className="p-6 bg-white border-b border-slate-200">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center">
+                        <MapPin size={20} className="text-white" />
+                    </div>
+                    <div>
+                        <h2 className="text-2xl font-bold text-slate-800">Research Lab</h2>
+                        <p className="text-sm text-slate-500">Multi-Criteria Urban Accessibility Model</p>
+                    </div>
+                </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
